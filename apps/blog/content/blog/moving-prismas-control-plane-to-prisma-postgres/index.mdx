@@ -34,6 +34,16 @@ One engineer did the work together with [Claude Code](https://claude.com/claude-
 
 <TryPostgres />
 
+## Why we moved
+
+Our services reached the RDS database through [Accelerate](https://www.prisma.io/docs/accelerate), Prisma's connection pooling service. We wanted to change that setup for three reasons:
+
+- **To use what our customers use.** Prisma Postgres is the database platform we offer. With our own production data on it, we experience it at scale in the same way our customers do.
+- **To move off Accelerate.** At the time of the migration we were already planning to [retire Accelerate](https://www.prisma.io/docs/postgres/database/switch-from-accelerate), so our own services had to stop using it.
+- **To adopt Prisma 8.** We wanted to move our services to [Prisma 8](https://www.prisma.io/docs/orm). Prisma 8 connects to the database directly and, by design, does not support Accelerate.
+
+The move also made a later step possible. With the database on Prisma Postgres, we could move our services to [Prisma Compute](https://www.prisma.io/docs/compute). Compute runs next to Prisma Postgres on the same platform, so each database query has a shorter network path. We have since moved the Console there.
+
 ## Why we used logical replication
 
 The simplest way to move a Postgres database is `pg_dump` and `pg_restore`, which is what the [import guide](https://www.prisma.io/docs/postgres/import-from-existing-database) in our docs describes. It needs writes paused while the copy runs, and we could not pause writes. Six services read and write this database, and customers use the Console and the Management API at all hours.
@@ -57,7 +67,7 @@ Before we created anything, we went through what logical replication needs from 
 - **The target tables are empty.** The copy inserts every row, so a row that already exists on the target causes a duplicate key error. Every table on Prisma Postgres was empty, with one exception: the migration history table.
 - **The migration history table stays out of the copy.** Prisma records the applied migrations in the `_prisma_migrations` table. The migrations had already run on Prisma Postgres, so this table was filled in there. Copying the RDS version on top would have failed on duplicate keys. We left it out and published the other 82 tables by name.
 - **Prisma Postgres can reach RDS.** The subscription opens a connection from Prisma Postgres to RDS. Our RDS security group did not allow that connection. We added an inbound rule in a separate security group, so that we could remove it after the migration. Then we tested the connection with a `dblink` query from Prisma Postgres. `dblink` is the Postgres extension that lets one database run a query on another.
-- **Prisma Postgres stays awake during the copy.** Prisma Postgres pauses a database that has no connections and [resumes it on the next connection](/cloudflare-unikernels-and-bare-metal-life-of-a-prisma-postgres-query). The worker that applies replicated changes runs inside the database and does not count as a connection. None of our services connected to the new database yet. So we ran a small service on [Prisma Compute](https://www.prisma.io/docs/compute) that held one connection open and ran `SELECT 1` every few seconds.
+- **Prisma Postgres stays awake during the copy.** Prisma Postgres pauses a database that has no connections and [resumes it on the next connection](/cloudflare-unikernels-and-bare-metal-life-of-a-prisma-postgres-query). Replication alone does not count as a connection, and none of our services used the new database yet. So we deployed a small service on Prisma Compute that pinged the database every few seconds.
 - **We know which tables hold the data.** Two tables held about three quarters of the 74 GB. The largest was a log of GitHub webhook deliveries: about nine million rows of raw JSON with no retention rule. We have since added a 30-day retention job. If we had added it before the migration, there would have been less to copy.
 
 <Callout title="Working with the agent">
@@ -92,7 +102,7 @@ Here is every command, in the order we ran it, with hostnames and passwords repl
 
 We set one rule for the cutover: every service, and every connection path inside a service, had to switch in the same deployment. If one path switched and another did not, a service could write a row to one database and then fail to read it from the other.
 
-We run five services on Cloudflare Workers and one on Prisma Compute. Some reach the database with the classic Prisma Client through [Accelerate](https://www.prisma.io/docs/accelerate). Some use the [Prisma 8](https://www.prisma.io/docs/orm) client, which connects [directly over TCP](https://www.prisma.io/docs/postgres/database/connecting-to-your-database) through a [Cloudflare Hyperdrive](https://developers.cloudflare.com/hyperdrive/) binding. Two use both. That gave us several pieces of connection config in different places.
+We run five services on Cloudflare Workers and one on Prisma Compute. Some reach the database with the classic Prisma Client through Accelerate. Some use the Prisma 8 client, which connects [directly over TCP](https://www.prisma.io/docs/postgres/database/connecting-to-your-database) through a [Cloudflare Hyperdrive](https://developers.cloudflare.com/hyperdrive/) binding. Two use both. That gave us several pieces of connection config in different places.
 
 We prepared the switch in three steps:
 
