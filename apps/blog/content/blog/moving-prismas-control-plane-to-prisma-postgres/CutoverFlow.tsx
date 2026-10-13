@@ -106,7 +106,7 @@ function Flow({ step }: { step: number }) {
   return (
     <figure className="cp-flow-figure">
       <div className="cp-flow" data-stream={f.stream} role="img" aria-label={f.caption}>
-        <div className="cp-flow-row-label">Six services on Cloudflare Workers</div>
+        <div className="cp-flow-row-label">Six services</div>
 
         <ul className="cp-flow-services">
           {SERVICES.map((name, i) => (
@@ -188,8 +188,8 @@ const STEPS = [
     body: (
       <p>
         Minutes before the merge we create a logical replication slot on the new database. From this
-        moment it retains every write, so the rollback covers the whole cutover window. Creating it
-        any earlier would have pinned WAL for nothing, at roughly a gigabyte an hour.
+        moment it keeps every write, so the rollback covers the whole cutover. Created days earlier,
+        it would have held about one gigabyte of write-ahead log per hour for no benefit.
       </p>
     ),
   },
@@ -198,11 +198,10 @@ const STEPS = [
     title: "Merge once, deploy six services",
     body: (
       <p>
-        The merge carries the new Hyperdrive binding and the new secrets together, so within each
-        service both database paths switch in the same deployment. Between services there is a skew
-        of a few minutes while the deploy jobs run, and the forward stream stays up through that
-        window to carry the last RDS writes across. The apply error counter, which would have caught
-        a key collision, stayed at zero.
+        The merge deploys every service with its new connection config, so every connection path
+        inside a service switches in the same deployment. The deploy jobs take a few minutes, and
+        the forward stream keeps running during that time, so the last writes on RDS still reach
+        Prisma Postgres. The apply error counter, which reports a key collision, stayed at zero.
       </p>
     ),
   },
@@ -211,10 +210,9 @@ const STEPS = [
     title: "Wait for RDS to go quiet",
     body: (
       <p>
-        We watched the application sessions in <code>pg_stat_activity</code> on RDS fall to zero and
-        the newest row timestamps stop advancing there. Seven minutes after the merge the last
-        statement ran on RDS, a later sixty-second sample of its write counters showed nothing, and
-        only then did we drop the forward subscription.
+        The last statement from any service ran on RDS seven minutes after the merge. A later
+        sixty-second sample of the RDS write counters showed no inserts, updates, or deletes. Then
+        we dropped the forward subscription.
       </p>
     ),
   },
@@ -237,10 +235,9 @@ const STEPS = [
     title: "Hold for a week, then let go",
     body: (
       <p>
-        For a week, rollback meant reverting one commit and deleting a handful of secrets. After a
-        final parity check on the key tables we dropped the reverse subscription, took a snapshot,
-        and stopped the RDS instances. Past that point there is no rollback that keeps data, so that
-        is the moment to be sure.
+        For a week, rolling back meant reverting one commit and deleting the new secrets. After a
+        final comparison of the key tables we dropped the reverse subscription, took a snapshot, and
+        stopped the RDS instances. From that point there is no rollback that keeps data.
       </p>
     ),
   },

@@ -6,7 +6,7 @@ const STEPS = [
     id: "publication",
     title: "Publish the tables by name",
     file: "01-publication.sql",
-    body: "On the source, as the role that owns the tables. Check first that every table has a primary key, which logical replication needs to match rows for updates and deletes. The migration history table is left out of the publication on purpose: the target already has it. A dedicated login does the reading, so no application password ever lives on the new side.",
+    body: "We ran this on RDS as the role that owns the tables. The first query confirmed that every table has a primary key, which logical replication needs to match rows for updates and deletes. We left the migration history table out of the publication because the target already had its own. A dedicated login does the reading, so no application password is stored on the new side.",
     code: `-- RDS, as the owner of the tables
 SELECT c.relname AS table_without_primary_key
 FROM pg_class c
@@ -39,7 +39,7 @@ WHERE pubname = 'app_migration';   -- 82`,
     id: "subscription",
     title: "Subscribe and start the copy",
     file: "02-subscription.sql",
-    body: "On the target. Prove the network path and the login first with a dblink query, the Postgres extension that lets one database run a query on another. Then create the subscription, which creates the replication slot on the source and starts the initial copy. From here Postgres does the work; our job is to watch it.",
+    body: "We ran this on Prisma Postgres. The dblink query proved the network path and the login before we created anything. Creating the subscription created the replication slot on RDS and started the initial copy.",
     code: `-- Prisma Postgres
 CREATE EXTENSION IF NOT EXISTS dblink;
 
@@ -59,9 +59,9 @@ CREATE SUBSCRIPTION app_migration
   },
   {
     id: "watch",
-    title: "Watch the copy, not the clock",
+    title: "Watch the copy",
     file: "03-progress.sql",
-    body: "Tables move through i (waiting), d (copying), f and s (catch-up) and r (ready). The two error counters must stay at zero. On the source, the slot shows how much WAL it is holding on to.",
+    body: "Tables move through i (waiting), d (copying), f and s (catch-up) and r (ready). We watched the two error counters, which stayed at zero, and on RDS how much WAL the slot was holding.",
     code: `-- Prisma Postgres
 SELECT srsubstate AS state, count(*)
 FROM pg_subscription_rel
@@ -85,7 +85,7 @@ ORDER BY 1;`,
     id: "verify",
     title: "Compare every table in one query",
     file: "04-verify.sql",
-    body: "ANALYZE first, because the initial copy leaves no planner statistics behind and later queries would plan badly. Then count every table on both sides through dblink and return only the mismatches. An empty result is the answer you want.",
+    body: "We ran ANALYZE first, because the initial copy leaves no planner statistics behind and later queries would plan badly. Then one query counted every table on both sides through dblink and returned only the mismatches. It returned no rows.",
     code: `-- Prisma Postgres
 ANALYZE;
 
@@ -119,7 +119,7 @@ FROM "Organization" x;`,
     id: "rollback",
     title: "Rollback slot, then reverse",
     file: "05-rollback.sql",
-    body: "The reverse publication can exist any time before; it retains nothing. The slot is created minutes before the cutover, because it pins WAL from that moment. After the old side goes quiet, drop the forward subscription and subscribe the old side to the new one with copy_data off and origin = none, so only the application's own writes travel back.",
+    body: "The reverse publication can be created ahead of time, because a publication retains nothing. We created the slot minutes before the cutover, because it holds WAL from that moment. After RDS went quiet, we dropped the forward subscription and subscribed RDS to Prisma Postgres with copy_data off and origin = none, so only the application's own writes travelled back.",
     code: `-- Prisma Postgres, any time before the cutover
 DO $$
 DECLARE tables text;

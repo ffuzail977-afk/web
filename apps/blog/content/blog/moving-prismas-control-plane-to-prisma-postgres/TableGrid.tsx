@@ -164,7 +164,7 @@ const STEPS = [
     body: (
       <p>
         The control plane schema had 83 tables and 204 applied migrations. Two of those tables held
-        most of the bytes, which the migration spec had not accounted for.
+        about three quarters of the 74 GB.
       </p>
     ),
   },

@@ -2836,13 +2836,9 @@ g[data-top="true"] .vector-demo-point {
   background: var(--cp-ppg);
 }
 
-@container (max-width: 480px) {
-  .cp-flow {
-    --cp-flow-gap: 1.75rem;
-  }
-
-  /* on a phone the chips wrap into a short band and only change colour,
-     so the sticky figure stays under half the screen */
+/* stacked layout: the figure sticks above the steps, so it has to stay under
+   about half the screen or it covers the step text */
+@container (max-width: 760px) {
   .cp-flow-services {
     display: flex;
     flex-wrap: wrap;
@@ -2851,12 +2847,27 @@ g[data-top="true"] .vector-demo-point {
 
   .cp-flow-service {
     flex: 0 1 auto;
-    font-size: 0.6875rem;
-    padding: 0.25rem 0.5rem;
   }
 
   .cp-flow-service[data-side="ppg"] {
     transform: none;
+  }
+}
+
+@container (min-width: 481px) and (max-width: 760px) {
+  .cp-grid {
+    grid-template-columns: repeat(20, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 480px) {
+  .cp-flow {
+    --cp-flow-gap: 1.75rem;
+  }
+
+  .cp-flow-service {
+    font-size: 0.6875rem;
+    padding: 0.25rem 0.5rem;
   }
 
   .cp-flow-writes {
@@ -2879,6 +2890,104 @@ g[data-top="true"] .vector-demo-point {
   .cp-sq small {
     font-size: 0.5rem;
   }
+}
+
+/* Static two-panel diagram: a migration reaching both databases, or only one */
+.cp-drift {
+  --cp-ppg: var(--color-foreground-ppg);
+  --cp-neutral: var(--color-stroke-neutral);
+  --cp-rds: var(--color-prism-yellow-500);
+  --cp-live: var(--color-foreground-purple);
+  --cp-out: var(--color-prism-red-500);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.cp-drift-panel {
+  padding: 1rem;
+  border: 1px solid var(--cp-neutral);
+  border-radius: var(--radius-square-high);
+  background: var(--color-background-default);
+}
+
+.cp-drift-panel svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.cp-drift-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--color-foreground-neutral);
+}
+
+.cp-drift-caption {
+  margin: 0.75rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--color-foreground-neutral);
+}
+
+.cp-drift-box {
+  fill: var(--color-background-default);
+  stroke: var(--cp-neutral);
+  stroke-width: 1.5;
+}
+
+.cp-drift-box[data-db="rds"] {
+  stroke: var(--cp-rds);
+}
+
+.cp-drift-box[data-db="ppg"] {
+  stroke: var(--cp-ppg);
+}
+
+.cp-drift-text,
+.cp-drift-sub {
+  text-anchor: middle;
+  font-size: 11px;
+  fill: var(--color-foreground-neutral);
+}
+
+.cp-drift-text {
+  font-weight: 600;
+}
+
+.cp-drift-sub {
+  fill: var(--color-foreground-neutral-weak);
+}
+
+.cp-drift-sub[data-kind="stream"] {
+  fill: var(--cp-live);
+}
+
+.cp-drift-sub[data-kind="bad"] {
+  fill: var(--cp-out);
+  font-weight: 600;
+}
+
+.cp-drift-arrow {
+  stroke: var(--color-foreground-neutral-weak);
+  fill: var(--color-foreground-neutral-weak);
+  stroke-width: 1.5;
+}
+
+.cp-drift-arrow[data-kind="stream"] {
+  stroke: var(--cp-live);
+  fill: var(--cp-live);
+}
+
+.cp-drift-arrow[data-kind="bad"] {
+  stroke: var(--cp-out);
+  fill: var(--cp-out);
+}
+
+.cp-drift-arrow[data-kind="bad"] line {
+  stroke-dasharray: 4 3;
 }
 
 /* Quiet intro aside: try the product while reading */
