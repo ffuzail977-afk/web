@@ -1,5 +1,6 @@
 import { Marker } from "@/components/brand/marker";
 import { PrismButton, PrismButtonOutline } from "@/components/brand/prism-button";
+import { SpectrumRing } from "@/components/brand/spectrum-ring";
 import { CheckBold } from "@/components/icons/forma";
 import { cn } from "@/lib/utils";
 
@@ -138,7 +139,7 @@ export function PricingPlans() {
             className={cn(
               "relative flex flex-col rounded-2xl border bg-white p-6 sm:p-7",
               plan.popular
-                ? "spectrum-border spectrum-border-on border-transparent shadow-[0_1px_2px_rgba(21,21,21,0.04),0_24px_48px_-24px_rgba(21,21,21,0.25)]"
+                ? "border-transparent shadow-[0_1px_2px_rgba(21,21,21,0.04),0_24px_48px_-24px_rgba(21,21,21,0.25)]"
                 : "border-black/[0.06]",
             )}
           >
@@ -195,6 +196,7 @@ export function PricingPlans() {
                 </PrismButtonOutline>
               )}
             </div>
+            {plan.popular && <SpectrumRing />}
           </div>
         ))}
       </div>
