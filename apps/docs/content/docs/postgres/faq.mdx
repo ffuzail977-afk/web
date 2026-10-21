@@ -36,7 +36,7 @@ Prisma Postgres doesn't support custom roles. The database user in your connecti
 ERROR: restricted superuser cannot create roles
 ```
 
-If you wanted a role to give one part of your application read-only access, check in your own code which queries that part may run before it sends them.
+If you wanted a role to give one part of your application read-only access, enforce that in your application instead. When that part sends its queries through Prisma ORM 8, a [middleware can refuse any query that isn't a read](/orm/middleware/how-middleware-works#beforequery-and-beforeexecute-validate-or-block) before it reaches the database.
 
 ### How do I switch from GitHub login to email and password login?
 
@@ -274,7 +274,7 @@ Deleting a database is permanent, so before you start, [export any data you want
 
 1. Open your [Vercel](https://vercel.com/) Dashboard and select the team that owns the database.
 2. Open **Storage** in the sidebar and select the database.
-3. Open its **Settings** and choose the option to delete the database, then confirm.
+3. In the database's **Settings**, choose the option to delete the database, then confirm.
 
 Usage charges for the database stop when you delete it. Usage from before that still appears on your Vercel invoice.
 
