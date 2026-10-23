@@ -987,7 +987,7 @@ point. No application, deployment, or production configuration was changed.
 
 ## Cloudflare custom-domain baseline and origin cache policy — 23 October 2026
 
-The custom domain `https://prisma.sorenbs.com` targets the branch gateway
+At baseline, the custom domain `https://prisma.sorenbs.com` targeted the branch gateway
 `https://bgbhakfqfiubyt7jh8c0eerb.ewr.prisma.build`, verified in successful
 [deployment run 39432175818](https://github.com/prisma/web/actions/runs/39432175818)
 on `043a33b5766c856f624c2a3571cc29c89300cb38`. The older generated domain used on
@@ -1054,3 +1054,42 @@ URLs as immutable automatically.
 Raw HTTP samples, Lighthouse reports, network logs and reproduction scripts are
 saved locally in `output/playwright/blog-performance-2026-10-23/`. The historical
 baseline is kept separate from measurements after code/rule changes.
+
+### Deployment verification and custom-domain blocker
+
+[PR #8585](https://github.com/prisma/web/pull/8585) introduces this policy on the
+same `codex/web-composer` branch. Its code head
+`ef0ea50b61ca8095278703d63b454d1ccd1e6341` passed the
+[preview deployment and deployed smoke checks](https://github.com/prisma/web/actions/runs/39970460050),
+including the actual landing-page cache headers. The Linux Composer build/local
+stack CI and all five Vercel previews passed. Direct checks against the new
+gateway `https://lvec8wy0mj35re22xqygszwq.ewr.prisma.build` also verified cookies,
+authorization, prefetch, query strings, Markdown/agent requests, RSC and HTML
+conditional 304s. Next redirects bare RSC requests to the `_rsc` query variant;
+following that redirect returns the component representation. The root Markdown
+document is served as `text/plain` and remains Markdown rather than cached HTML.
+
+The original Composer PR #8458 merged on 20 October and GitHub deleted its head
+branch. Recreating that branch for #8585 produced six different service IDs;
+the infrastructure definitions and dependency versions were identical to the
+previous deployment. The old gateway now returns 404 and its service is no longer
+present in the Management API. The custom hostname also returns the Compute
+"No app deployed" 404, while the new generated gateway is healthy. The new
+gateway's domain list is empty. This is a routing/identity problem, separate
+from Cloudflare caching; the precise service replacement cause is not established.
+
+An attempt to reattach the existing hostname through
+`POST /v1/services/{serviceId}/domains` was rejected with HTTP 400 because the
+Prisma DNS verifier cannot see a CNAME behind Cloudflare's proxied DNS. No domain
+was created by that attempt, and no Cloudflare settings were changed. The user
+must temporarily expose the CNAME using DNS-only mode so it can be reattached,
+then restore proxying. The local CLI also rejects preview-domain commands before
+calling the API, despite Console supporting that use case.
+
+**Product improvements:** preserve or explicitly migrate custom-domain routing
+when a preview service is replaced; surface a warning before the previous target
+is removed; support ownership verification for proxied hostnames (for example,
+TXT verification); and keep CLI preview-domain support aligned with Console.
+Do not enable the HTML rule or report after-rule performance until the hostname
+serves the verified new gateway. Capture the new deployment's uncached baseline
+before applying the eligibility rule so newer content is not attributed to caching.
