@@ -300,7 +300,7 @@ cookie-setting responses, authorization and Next navigation requests cannot.
 Cookies do not personalize these public documents. Query parameters stay in the
 CDN's full cache key, so tracked visits can reuse their own public HTML entry
 without conflating search/filter URLs. `_rsc` variants remain excluded. APIs,
-RSC and Markdown retain their upstream policies and do not use this HTML rule.
+RSC and Markdown retain their upstream policies.
 The public-file inventory is generated from all five apps' `public` directories;
 an image-shaped API URL does not qualify merely because of its suffix. Public files are
 hashed as streams at build time; only paths, sizes and SHA-256 values ship in
@@ -324,30 +324,43 @@ Before production, add deployment-aware purge or retention of old hashed assets:
 stale HTML can reference chunks removed by a newer deployment. A short TTL is
 not a substitute for that release boundary.
 
-The exported [Cloudflare Cache Rule](composer/cloudflare-cache-rule.json) makes
-public browser HTML on `prisma.sorenbs.com` eligible across all websites,
-including cookie-bearing and query-string visits. Authorization, Next/RSC
-navigation, API paths and agent/Markdown variants bypass **before cache lookup**.
-Origin headers still decide whether a response can be stored; the rule does not
-force dynamic or private responses into the cache. Keep the full default cache
-key, including every query parameter. Do not configure “ignore query string”.
+The exported [Cloudflare Cache Rule](composer/cloudflare-cache-rule.json) is
+one hostname-wide rule. It makes all response types eligible, while the origin
+controls storage, freshness and representation variants. No path, cookie,
+agent, image-format or framework-specific rules are needed in Cloudflare.
 
-In **Cloudflare → sorenbs.com → Caching → Cache Rules → Create rule**:
+In **Cloudflare → sorenbs.com → Caching → Cache Rules**, replace the earlier
+HTML/image rules with this single rule:
 
-1. Name it **Prisma preview HTML — origin policy**.
-2. Choose **Custom filter expression → Edit expression** and paste the
-   `expression` from the JSON file.
+1. Name it **Prisma preview — origin policy**.
+2. Set **Custom filter expression** to `(http.host eq "prisma.sorenbs.com")`.
 3. Set **Cache eligibility → Eligible for cache**.
 4. Set **Edge TTL → Use cache-control header if present, bypass cache if not**.
-5. Set **Browser TTL → Respect origin**. Leave the cache key and other settings
-   at their defaults. Do not choose a TTL override or ignore query strings.
-6. Enable it only after the preview returns the new origin policy.
+5. Set **Browser TTL → Respect origin**.
+6. Set **Vary → Default → Passthrough**, with no per-header entries. This uses
+   each origin response's `Vary` header to keep its representations separate.
+7. Keep the default full cache key, including query parameters. Remove the
+   earlier overlapping HTML/image rules; do not add forced TTLs or ignore queries.
 
-Verify normal HTML returns `MISS` then `HIT` with increasing `Age`, including
-articles, docs, cookie-bearing and tracking-query visits. RSC, Markdown,
-authorization and dynamic unsubscribe requests must still receive their correct
-representations. Public images should become fresh hits rather than repeatedly
-reporting `REVALIDATED`. Test raw media ranges and repeat after the 60-second
-freshness boundary to verify background revalidation. A cold PoP or a URL never
-requested there still needs the US origin; this policy alone does not guarantee
-global latency parity with Vercel for every request.
+The equivalent API settings are included in the JSON file. Cloudflare's
+[origin cache control](https://developers.cloudflare.com/cache/concepts/cache-control/)
+is already enabled on Free, Pro and Business, but does not lift the default
+HTML eligibility restriction. Its [Vary setting](https://developers.cloudflare.com/cache/concepts/vary/)
+is available on all plans and must be enabled: without it, a JPEG-only request
+was observed receiving a cached WebP response. Raw header values preserve the
+origin's exact negotiation, at the cost of some cache fragmentation. There is
+no normalization/format allowlist to maintain in Cloudflare.
+
+The gateway declares `Vary` for HTML/Markdown and the authorization/Next headers
+that affect the request's representation or storage policy. Next's image
+optimizer declares `Vary: Accept`. Private/no-store responses remain private;
+requests without origin freshness headers bypass caching. Next controls
+optimized-image freshness (currently four hours); replacing an image at the
+same URL requires invalidation or a versioned source URL.
+
+Enable the rule after these origin changes deploy. Verify repeated HTML and
+image GETs become hits; HTML, Markdown, RSC, authenticated/private responses,
+and WebP/JPEG must remain separate when alternating request headers. Test raw
+media ranges and the HTML 60-second revalidation boundary too. A cold PoP or
+unique URL still needs the US origin; one rule alone cannot guarantee global
+latency parity with Vercel for every request.

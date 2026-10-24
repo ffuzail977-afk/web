@@ -16,6 +16,7 @@ function config(composer: boolean) {
     for (const name of ['site', 'docs', 'blog', 'handbook', 'eclipse']) {
       const { default: config } = await import('./apps/' + name + '/next.config.mjs');
       result[name] = { output: config.output, basePath: config.basePath, assetPrefix: config.assetPrefix };
+      result[name].imageCache = { handler: !!config.cacheHandler, custom: config.images?.customCacheHandler === true };
       result[name].routing = { redirects: await config.redirects?.() ?? [], rewrites: await config.rewrites?.() ?? [], headers: await config.headers?.() ?? [] };
       if (name === 'site') result.site.forwards = (await config.rewrites()).beforeFiles.filter(r => /^\\/(docs|blog)(?:[/:.-]|$)/.test(r.source)).length;
     }
@@ -49,6 +50,7 @@ test("default production configs preserve Vercel output, paths, and zone rewrite
   assert.equal(result.docs.basePath, "/docs");
   assert.equal(result.blog.basePath, "/blog");
   assert.equal(result.site.forwards, 9);
+  assert.deepEqual(result.site.imageCache, { handler: false, custom: false });
 });
 
 test("Composer builds isolate all five servers and leave cross-zone routing to the gateway", () => {
@@ -58,6 +60,7 @@ test("Composer builds isolate all five servers and leave cross-zone routing to t
   assert.equal(result.eclipse.basePath, "/eclipse");
   assert.equal(result.eclipse.assetPrefix, "/eclipse-static");
   assert.equal(result.site.forwards, 0);
+  assert.deepEqual(result.site.imageCache, { handler: true, custom: true });
 });
 
 test("Composer preserves each app's declared redirects, headers, and non-zone rewrites", () => {

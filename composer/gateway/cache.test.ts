@@ -24,7 +24,18 @@ test("prerendered HTML has origin-owned CDN freshness and browser revalidation",
     "public, max-age=60, stale-while-revalidate=300",
   );
   assert.equal(response.headers.get("cache-control"), "public, max-age=0");
-  assert.equal(response.headers.get("vary"), "rsc, next-router-state-tree, Accept-Encoding");
+  const vary = response.headers.get("vary")!.split(", ");
+  for (const name of [
+    "rsc",
+    "next-router-state-tree",
+    "accept-encoding",
+    "accept",
+    "user-agent",
+    "authorization",
+    "next-action",
+    "x-prerender-revalidate",
+  ])
+    assert.ok(vary.includes(name), name);
   assert.equal(response.headers.get("etag"), '"unchanged"');
   assert.equal(await response.text(), "prerendered HTML");
 });
@@ -58,7 +69,10 @@ test("explicit app CDN policies remain authoritative", async () => {
   for (const header of ["cdn-cache-control", "cloudflare-cdn-cache-control"]) {
     for (const policy of ["no-store", "private", "public, max-age=10"]) {
       const source = html({ [header]: policy });
-      assert.equal(await withOriginCache(() => source)(request()), source);
+      const result = await withOriginCache(() => source)(request());
+      assert.equal(result.headers.get(header), policy);
+      assert.equal(await result.text(), "prerendered HTML");
+      assert.ok(result.headers.get("vary")!.includes("accept"));
     }
   }
 });

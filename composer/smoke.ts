@@ -95,6 +95,28 @@ try {
   assert.equal(markdown.status, 200);
   assert.match(markdown.headers.get("content-type") ?? "", /text\//);
   console.log("PASS docs Markdown");
+  // Compute's application directory is read-only: optimized images must use
+  // the bounded memory handler, and a CDN must honor their Accept variants.
+  const optimizedImage = new URL("/_next/image?url=%2Fbrand%2Ftexture.jpg&w=640&q=75", origin);
+  for (const format of ["webp", "jpeg"]) {
+    let hit = false;
+    let previous: string | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const response = await get(optimizedImage, { headers: { accept: `image/${format}` } });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), `image/${format}`);
+      const digest = createHash("sha256")
+        .update(Buffer.from(await response.arrayBuffer()))
+        .digest("hex");
+      if (previous) assert.equal(digest, previous, "image bytes changed between cache reads");
+      previous = digest;
+      hit ||=
+        response.headers.get("x-nextjs-cache") === "HIT" ||
+        response.headers.get("cf-cache-status") === "HIT";
+    }
+    assert.ok(hit, `optimized ${format} never became a cache hit`);
+  }
+  console.log("PASS optimized images: origin cache reuse and separate WebP/JPEG variants");
   // Exercise original public files served by Next, including the largest file.
   // Select representatives from the checkout, without a runtime media catalog.
   const publicDir = fileURLToPath(new URL("../apps/blog/public/", import.meta.url));

@@ -25,7 +25,7 @@ export function withOriginCache(
 ): Handler {
   const read = withFileValidators(handler, publicAssets);
   return async (request) => {
-    const response = await read(request);
+    let response = await read(request);
     const url = new URL(request.url);
     const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
     const prerendered = /(?:^|,)\s*1\s*(?:,|$)/.test(
@@ -33,6 +33,30 @@ export function withOriginCache(
     );
     const asset = publicAssets.has(assetKey(url.pathname));
     const publicDocument = !asset && response.headers.get("x-composer-public-document") === "1";
+    if (
+      !asset &&
+      (/^text\/html(?:;|$)/.test(contentType) ||
+        (response.status === 304 && (prerendered || publicDocument)))
+    ) {
+      // Declare all inputs before an edge cache lookup can reuse this HTML.
+      // Next overwrites the apps' Accept Vary header; the gateway restores it
+      // and includes agent-UA negotiation plus headers that require bypass.
+      // A hostname-only CDN rule can now follow origin policy safely.
+      const headers = new Headers(response.headers);
+      const vary = new Set(
+        (headers.get("vary") ?? "")
+          .split(",")
+          .map((name) => name.trim().toLowerCase())
+          .filter(Boolean),
+      );
+      for (const name of ["accept", "user-agent", ...PRIVATE_REQUEST_HEADERS]) vary.add(name);
+      headers.set("vary", [...vary].join(", "));
+      response = new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    }
     // Preserve framework cache policy, streaming and byte ranges.
     // A conditional HTML response can omit Content-Type, but must retain its
     // freshness cap when the CDN merges the 304 headers into its cached copy.

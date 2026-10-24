@@ -1294,3 +1294,91 @@ All 56 custom-domain responses still reported DYNAMIC, despite correct origin
 CDN headers. Raw responses and service/version snapshots are retained locally
 under output/playwright/global-performance-2026-10-24. The rule update is a
 separate operator step; source changes do not make Cloudflare HTML eligible.
+
+### October 24: verified transport fix, browser results, and the read-only image cache
+
+Source 2a037aa4c passed every GitHub check, all five Vercel previews, and Compute
+workflow 40081258292. The complete custom-domain smoke passed too, including
+original media hashes, full-GET lengths, redirects, Markdown and articles.
+Cloudflare now serves a 16-byte range of the 43,470,561-byte GIF as 206/HIT with
+Content-Range and the content-based asset-v1 validator. This verifies the
+streaming HTTP adapter fix beyond HEAD/local tests.
+
+Three interleaved audits per browser profile, from the same Bangkok machine,
+used source 2a037aa4c with browser caches reset and edge resources warm. Service
+version snapshots before/after all audits were identical. Lighthouse 13.5.0,
+Chrome 155; mobile uses applied 150 ms latency, 1,600/750 Kbps and CPU x4.
+Desktop Lighthouse simulation and observed paint are recorded separately.
+The live production site has different builds/content/analytics, so these are
+operational comparisons, not an isolated hosting experiment.
+
+| Blog metric (median, 3 runs each) | Compute + Cloudflare | prisma.io / Vercel |
+| --- | ---: | ---: |
+| Desktop score | 99 | 90 |
+| Desktop simulated LCP | 0.862 s | 2.084 s |
+| Desktop observed LCP | 0.196 s | 0.421 s |
+| Mobile score | 82 | 66 |
+| Mobile applied LCP | 2.466 s | 3.464 s |
+| Mobile transfer | 2,487,806 bytes | 3,352,414 bytes |
+
+The font change reduces early contention, rather than eliminating italic font
+transfer: CSS still requests Inter italic. Mobile font wire bytes were 788,333
+versus 829,343, while total payload fell about 26%, principally from deferred
+images. Do not describe this as removing 388 KB of font downloads.
+
+One-run screening of other pages exposed why a blog-only conclusion would be
+misleading. Docs mobile LCP was 2.603 versus 3.462 s; article mobile was 2.158
+versus 3.523 s. However desktop docs was slower (2.492 versus 2.080 s simulated;
+1.276 versus 0.483 s observed), and the homepage texture was much slower.
+Homepage desktop LCP was 4.894 versus 2.550 s simulated / 3.911 versus 0.507 s
+observed. Mobile was poor on both: 15.177 versus 14.959 s. These are single
+screening samples, not robust medians or evidence of global parity.
+
+The homepage texture's Next image request took 3.616 s in that desktop trace,
+versus 85 ms on Vercel. Repeated manual origin-path requests still reported
+x-nextjs-cache MISS and Cloudflare DYNAMIC. Read-only preview logs provide a
+concrete cause: EACCES creating
+/mnt/app/code/bundle/apps/site/.next/cache/images, including failed cache writes
+and unhandled rejections. Next was optimizing repeatedly because its default
+cache location is inside Compute's read-only application directory.
+
+The follow-up uses Next 16.3.4's documented custom image-cache hook, with a
+16 MiB / 256-entry in-memory LRU. Oversize images work without being retained.
+Next's original handler still reads prerendered seeds and manages its existing
+bounded page/fetch memory cache, with filesystem writes disabled. It is enabled
+only for the Composer site build; Vercel's cache configuration is untouched.
+The adapter's delegation uses a pinned Next internal module, guarded by tests
+for seed reads, fetch/tag invalidation, no runtime writes, image LRU bounds and
+binary/timestamp retention. The smoke test now demands repeated optimized-image
+cache hits and correct separate WebP/JPEG responses. The homepage's above-fold
+texture also gets eager/high-priority loading; other textures remain lazy.
+Live verification of this follow-up is pending its deployment.
+
+### One Cloudflare rule, with policy owned by the origin
+
+The operator explicitly rejected maintaining route-specific Cloudflare rules.
+The supplied rule is now just `(http.host eq "prisma.sorenbs.com")`, cache
+eligible, origin-controlled Edge/Browser TTLs, full query key, and Vary Default
+Passthrough. There are no per-route, cookie, agent, image-format or framework
+lists in Cloudflare. Earlier HTML/image rule instructions are superseded.
+Cloudflare documents generic Vary handling on all plans. Its default value is
+the key setting: it follows every Vary header the origin actually emits,
+without a Cloudflare header allowlist to maintain.
+
+Vary must be configured, not assumed. When only the optimized-image expression
+was applied without Vary handling, a request accepting image/jpeg received the
+previously cached image/webp as a HIT. This was reported immediately, with an
+instruction to disable that rule until representation separation is enabled.
+A broad eligibility rule without Vary would also mix Next/Markdown responses.
+The gateway therefore restores Accept/User-Agent and relevant authorization/
+Next request headers in HTML Vary after Next overwrites the apps' declarations.
+Private/no-store responses still cannot be stored. Raw Vary values prioritize
+correctness over maximal sharing; especially User-Agent can fragment cache fills.
+
+Compute/Composer should provide a bounded writable cache strategy for Next on
+read-only deployments, and exercise real optimized-image GETs in its adapter
+smoke tests. Its custom-domain CDN guide should distinguish origin freshness
+from eligibility and require working Vary negotiation. Native deployment-aware
+asset storage/purge, atomic old-chunk retention, shared regional fills and
+Next-aware RSC variants remain necessary to meet the all-users target. One EWR
+origin plus an external CDN and local Bangkok wins do not prove that target.
