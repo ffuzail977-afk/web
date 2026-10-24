@@ -1093,3 +1093,83 @@ TXT verification); and keep CLI preview-domain support aligned with Console.
 Do not enable the HTML rule or report after-rule performance until the hostname
 serves the verified new gateway. Capture the new deployment's uncached baseline
 before applying the eligibility rule so newer content is not attributed to caching.
+
+## Custom-domain recovery and measured HTML caching — 24 October 2026
+
+The user reattached `prisma.sorenbs.com` to gateway
+`https://lvec8wy0mj35re22xqygszwq.ewr.prisma.build` and restored Cloudflare proxying.
+All websites and their static assets serve successfully through the hostname.
+The direct gateway passes the complete deployed smoke test, including original
+media, ranges, HEAD, conditional requests, redirects, Markdown and legacy articles.
+
+Subsequent investigation narrowed the replacement cause to the preview lifecycle.
+PR #8585 merged at 21:34:12 Bangkok time on 23 October; GitHub deleted its head
+branch three seconds later, while its preview build was still running. The
+control plane's [GitHub delete handler](https://github.com/prisma/pdp-control-plane/blob/3eb81042bb511b59adf69c84054fe9276df95277/services/github-webhook/webhook-handlers/handleDelete.ts)
+calls preview teardown, which purges branch state and removes service endpoints.
+The running workflow connected around 21:41 and planned `45 to create`, using
+`br_aj7z9r1362pmcrvlg79w39qc` instead of `br_dlot727q9c8gtwvtsyy73eau`. This
+sequence explains a fresh environment after deletion and the lost domain binding.
+The individual production webhook delivery trace has not been retrieved. Keep
+the test hostname on a persistent Git branch; a stale workflow should be rejected
+after branch deletion. The GitHub-delete path currently bypasses the pin guard
+used for idle cleanup, so pinning alone does not protect this case.
+
+A fresh baseline was recorded after recovery. The user then enabled the exported
+Cloudflare eligibility rule, and the same deployment was measured again. All six
+service/version IDs remained unchanged, and the before/after HTML fingerprints
+match for the custom domain, direct gateway and production control.
+
+| Median | Cloudflare before rule | Cloudflare after rule | Direct Compute | Production |
+| --- | ---: | ---: | ---: | ---: |
+| Blog TTFB | 326 ms | 64 ms | 826 ms | 195 ms |
+| Homepage TTFB | 353 ms | 74 ms | 819 ms | 166 ms |
+| Desktop Lighthouse score | 84 | 80 | 69 | 89 |
+| Desktop simulated LCP | 2.68 s | 3.57 s | 3.09 s | 2.16 s |
+| Observed desktop LCP | 1.25 s | 0.94 s | 2.84 s | 0.42 s |
+| Applied mobile Lighthouse score | 71 | 61 | 62 | 60 |
+| Applied mobile LCP | 3.36 s | 4.57 s | 4.03 s | 3.48 s |
+
+Ten fresh-connection HTTP GETs per page, target and phase; three independent
+browser audits per target/profile. Direct/production browser controls were
+collected between the custom-domain before/after series; their HTTP controls
+were repeated in both phases. Chrome 155 / Lighthouse 13.5.0, from Bangkok.
+Desktop uses standard simulation; applied mobile uses 150 ms latency,
+1,600/750 Kbps throughput and CPU x4. Browser caches reset between audits;
+server/CDN caches were warm. These are small local lab samples, and the live
+production site has different content and analytics/consent settings.
+
+The rule reduced blog TTFB by about 80%. Nine of ten blog HTTP requests hit the
+edge cache and one revalidated; all six browser documents were `HIT`, compared
+with six `DYNAMIC` documents before. The origin still sets the 60-second CDN
+lifetime and browser revalidation. Runtime probes verified cookie, authorization,
+query, prefetch, RSC and Markdown/agent variants bypass the cached HTML; origin
+conditional 304s retain the cap. The user changed Cloudflare configuration; no
+application code or deployment was changed during these measurements.
+
+Whole-page results are mixed: observed desktop LCP improved, while simulated
+desktop and applied mobile LCP worsened. The mobile waterfall shows the same
+featured hero image taking longer despite earlier HTML/CSS delivery. The hero
+lacks explicit high fetch priority, roughly 0.8 MB of fonts is preloaded, and
+other images compete for bandwidth. These are follow-up candidates rather than
+an isolated diagnosis; faster HTML alone does not establish a whole-page speedup.
+Public avatar/hero files still revalidate under `public, max-age=0`. Future
+Compute edge delivery should handle asset freshness and deployment invalidation
+as well as HTML caching, and provide framework-aware request variation.
+
+One CDN transport limitation remains: the strict custom-domain smoke failed a
+range assertion for the 43,470,561-byte GIF. Its full-file hash matched, but
+Cloudflare returned the entire file as HTTP 200 for `Range: bytes=0-15`, with
+`REVALIDATED` and no Content-Length. The direct gateway returned HTTP 206 and
+exactly 16 bytes. [Cloudflare documents full responses during decompression](https://developers.cloudflare.com/cache/reference/range-requests/),
+but the exact cause here has not been established. Do not label the complete CDN
+smoke as passing or attribute this difference to the origin proxy without evidence.
+
+The documentation-only preview deployment from 23 October separately failed an
+artifact upload with HTTP 502 after updating four website versions. Site and
+gateway still run the preceding successful deployment; both commits have identical
+service source. That failed job was not retried for this experiment.
+
+Raw samples, 24 Lighthouse audits, 192 successful HTTP responses, request-variant
+probes, smoke logs and reproduction scripts are retained locally in
+`output/playwright/blog-performance-2026-10-24/`, with `REPORT.md` as the entry point.
