@@ -51,6 +51,7 @@ test("default production configs preserve Vercel output, paths, and zone rewrite
   assert.equal(result.blog.basePath, "/blog");
   assert.equal(result.site.forwards, 9);
   assert.deepEqual(result.site.imageCache, { handler: false, custom: false });
+  assert.deepEqual(result.docs.imageCache, { handler: false, custom: false });
 });
 
 test("Composer builds isolate all five servers and leave cross-zone routing to the gateway", () => {
@@ -61,6 +62,7 @@ test("Composer builds isolate all five servers and leave cross-zone routing to t
   assert.equal(result.eclipse.assetPrefix, "/eclipse-static");
   assert.equal(result.site.forwards, 0);
   assert.deepEqual(result.site.imageCache, { handler: true, custom: true });
+  assert.deepEqual(result.docs.imageCache, { handler: true, custom: true });
 });
 
 test("Composer preserves each app's declared redirects, headers, and non-zone rewrites", () => {

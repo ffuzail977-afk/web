@@ -318,6 +318,12 @@ The gateway consumes that annotation, still checking status, request variants,
 Set-Cookie and Vary. Never annotate a route that reads user/session/request data.
 Vercel receives none of these annotations or cache policy overrides.
 
+The Composer site and docs use a 16 MiB / 256-entry image memory cache through
+Next's custom-cache hook. Next's prerendered seed reads and bounded page/fetch
+cache remain available without writing into Compute's read-only application
+directory. Vercel uses its original cache handler. Docs' standalone image
+sources include its `/docs` basePath.
+
 This policy is applied only by the Composer gateway. Vercel retains its existing
 cache and deployment invalidation. Without purge credentials, a cached document
 can remain visible for up to six minutes (freshness plus background revalidation)
@@ -339,7 +345,7 @@ HTML/image rules with this single rule:
 3. Set **Cache eligibility → Eligible for cache**.
 4. Set **Edge TTL → Use cache-control header if present, bypass cache if not**.
 5. Set **Browser TTL → Respect origin**.
-6. Set **Vary → Default → Passthrough**, with no per-header entries. This uses
+6. Set **Vary → Use raw header values** (API: default passthrough), with no per-header entries. This uses
    each origin response's `Vary` header to keep its representations separate.
 7. Keep the default full cache key, including query parameters. Remove the
    earlier overlapping HTML/image rules; do not add forced TTLs or ignore queries.

@@ -1434,3 +1434,114 @@ Singapore probe (Oracle AS31898) was routed to Cloudflare MRS/Marseille, with
 about 180 ms TCP and 194 ms TLS time even on a HIT. That route needs a separate
 multi-provider check; it is not evidence that every Singapore user sees this
 path, but prevents claiming the all-users target from these samples.
+
+
+### Single origin-controlled rule: deployed verification and regional limits
+
+Source `348d0fa68a19969e8213fc05de9b54ee08d10768` passed every GitHub
+check, all five Vercel previews, and [Compute deployment 40103873105](https://github.com/prisma/web/actions/runs/40103873105).
+The live custom-domain smoke passed. A 45-GET representation matrix and a
+13-request interleaved sequence both finished with no failures: homepage,
+blog, docs, article, cookie and tracking visits reuse the edge; HTML/Markdown,
+agent Markdown and WebP/JPEG stay distinct; authorization and valid Next/RSC
+navigation remain no-store/BYPASS. No additional Cloudflare rules were needed.
+The origin's consistent document Vary schema fixes HTML-to-Markdown-to-HTML
+cache thrashing. One observed `UPDATING` response with Age 204, followed by HIT
+with Age 0, is successful stale-while-revalidate behavior, not a failed test.
+
+The original minimal RSC probe was malformed: `RSC: 1` on bare `/` triggers
+Next's redirect to `/?_rsc`. That no-store 307 still causes a following HTML
+miss in this Cloudflare configuration and is retained as a diagnostic. The
+correct minimal request includes `?_rsc` and returns `text/x-component`;
+actual recorded browser prefetches also use `_rsc=<hash>`. Corrected interleaved
+navigation tests preserve the cached HTML representation. Earlier unsuccessful
+probe runs and the first over-strict check that rejected UPDATING are retained,
+rather than overwritten with successful results.
+
+The final seven-region comparison on this source made 196 successful HTTP 200
+HEAD requests: seven cases, seven reused probes, two targets, two rounds.
+Locations were Buffalo, Los Angeles, Falkenstein, Singapore, Sao Paulo,
+Johannesburg and Sydney. TTFB includes DNS + TCP + TLS + firstByte; Globalping's
+firstByte field alone excludes connection setup. Of the 49 repeated pairs,
+Compute/Cloudflare was faster in 37. This is a sample count, not a percentage
+of users. Repeated Cloudflare statuses were 45 HIT, two MISS, one EXPIRED and
+one REVALIDATED; the four non-hits were on the Singapore probe. Outside
+Singapore, all 42 repeated requests hit and 37 were faster than Vercel.
+
+| Case | Median repeated Compute/Cloudflare TTFB | Vercel | Faster pairs / 7 |
+| --- | ---: | ---: | ---: |
+| Homepage | 70 ms | 71 ms | 4 |
+| Optimized image | 64 ms | 61 ms | 3 |
+| Article | 42 ms | 216 ms | 6 |
+| Docs | 56 ms | 139 ms | 6 |
+| Avatar | 42 ms | 110 ms | 6 |
+| Cookie visit | 50 ms | 175 ms | 6 |
+| Tracking visit | 63 ms | 97 ms | 6 |
+
+The Singapore Oracle probe was processed in MRS/CDG/KIX and took 575–1,733 ms
+versus 38–114 ms on Vercel, including slow cache HITs. Additional Singapore
+networks confirm this is not confined to Oracle. On their second IPv4 docs
+reads, Oracle AS31898 measured 982/29 ms (Cloudflare/Vercel, MRS), MyRepublic
+AS56300 509/37 ms (MRS), AWS AS16509 32/42 ms (SIN), and Starhub AS55430
+91/47 ms (SIN). Processing locations varied between requests. An available
+Oracle IPv6 probe reached SIN and repeated at 41 ms, but it was a different
+probe within that ASN, not a controlled same-device IPv4/IPv6 experiment.
+
+Cloudflare's own `/cdn-cgi/trace`, which never reaches Compute, reproduced the
+problem: Oracle 1,037 ms/MRS, AWS 491 ms/CDG, MyRepublic 700 ms/CDG, Starhub
+215 ms/SIN including 179 ms DNS. Public Globalping evidence IDs:
+`27gNFKLz46ekq6gjU00021NOK` (trace), `2XXJIIvlbrkyUPAtB00021NOK`
+(traceroute), and `2zBqdYo4awCwaFAQw00021NOL` (TCP MTR). The incomplete
+MTR endpoint responses do not establish HTTP packet loss; HTTP requests
+succeeded. These results locate a delay outside our application, but do not
+isolate ISP peering from Cloudflare's internal processing path.
+
+[Cloudflare's routing guide](https://developers.cloudflare.com/support/troubleshooting/general-troubleshooting/geographic-traffic-routing/)
+explains that the response colo identifies processing, which may differ from
+ingress, and cannot be pinned in zone settings. The appropriate escalation
+packet is affected ASN, timestamp/cf-ray, trace and traceroute/MTR. Evidence
+is prepared; no support request or account/network change was made. This
+routing gap, cold fills, unique query keys, raw User-Agent cache fragmentation,
+uncached RSC and deployment-aware invalidation/old-asset retention prevent a
+claim that this is at least as fast for all users.
+
+The complete 48-audit Bangkok browser comparison used Lighthouse 13.5.0 and
+Chrome 155, three interleaved audits per page/profile/target, fresh browser
+caches, and progressively warmed edge resources. Mobile used applied DevTools
+150 ms RTT, 1,600/750 Kbps and CPU x4; desktop simulated LCP is distinct from
+observed LCP. Compute service version IDs were unchanged before/after and all
+four production static-asset signatures remained unchanged. These are live
+operational comparisons with different content/builds/analytics, not a pure
+hosting A/B. Raw JSON/HTML/traces/headers and comparison summaries are retained
+locally in `output/playwright/global-performance-2026-10-24`.
+
+| Page (median of 3) | Mobile LCP Compute / Vercel | Desktop simulated LCP Compute / Vercel | Desktop observed LCP Compute / Vercel |
+| --- | ---: | ---: | ---: |
+| Blog | 2.492 / 3.505 s | 0.841 / 2.045 s | 0.210 / 0.463 s |
+| Homepage | 10.187 / 14.944 s | 2.409 / 2.844 s | 0.325 / 0.506 s |
+| Article | 2.483 / 3.470 s | 0.747 / 1.612 s | 0.173 / 0.388 s |
+| Docs, before texture correction below | 3.412 / 3.517 s | 2.494 / 2.339 s | 0.289 / 0.475 s |
+
+The first desktop homepage image variant was cold: image MISS and LCP
+5.144 s simulated / 4.596 s observed. The two subsequent image HITs painted
+at 0.325/0.324 s observed. Prewarming did not cover every browser format/width,
+so calling all runs warm would hide a real first-visitor cost. Homepage mobile
+still transfers about 6.55 MB and is poor on both hosts; a relative win is not
+a good absolute experience. Docs desktop simulation was slightly slower.
+
+Network-log review found a genuine docs regression hidden by aggregate scores:
+its decorative texture's optimizer URL pointed at `/img/brand/texture.jpg`
+without the app's `/docs` basePath. Vercel's image service resolves it, while
+standalone Next returns HTTP 400. Thus the docs numbers above include a missing
+image and are not a valid final comparison. The correction prefixes that
+source only in Composer, enables the same bounded read-only image handler for
+docs, and extends the smoke to fetch the image URL extracted from real docs
+HTML, in separate WebP/JPEG variants with cache reuse. Docs monitoring/Sentry
+requests return 403 on both hosts and are recorded separately from asset
+failures. Docs must be remeasured after the correction deploys.
+
+The texture correction passes 40 proxy and 37 Composer tests/types, all five
+Composer builds, the extended full-stack smoke, docs type checking and all
+729 current files' link checks. Sampled docs RSS after smoke is 565.5 MB and
+gateway 171.6 MB; these are samples, not peak/load guarantees. Docs assembles
+to 432.2 MB / 230.0 MB compressed. Remote deployment/remeasurement follows.

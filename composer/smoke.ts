@@ -59,6 +59,7 @@ async function get(url: URL, init?: RequestInit, startup = false): Promise<Respo
 
 try {
   let documentVary: string | null = null;
+  let docsImage: URL | undefined;
   for (const path of ["/", "/docs/composer", "/blog", "/handbook", "/eclipse"]) {
     const response: Response = await get(
       new URL(path, origin),
@@ -72,7 +73,14 @@ try {
       `${path}: escaped the local stack`,
     );
     const html = await response.text();
-    if (path === "/docs/composer") documentVary = response.headers.get("vary");
+    if (path === "/docs/composer") {
+      documentVary = response.headers.get("vary");
+      const image = html.match(/src="([^"]*\/docs\/_next\/image\?[^"]+)"/);
+      assert.ok(image, "docs: expected the rendered background image");
+      docsImage = new URL(image[1].replaceAll("&amp;", "&"), origin);
+      assert.equal(docsImage.searchParams.get("url"), "/docs/img/brand/texture.jpg");
+      docsImage.searchParams.set("w", "640");
+    }
     assert.match(html, /<html/);
     if (["/", "/blog", "/docs/composer"].includes(path)) {
       assert.equal(
@@ -100,24 +108,25 @@ try {
   // Compute's application directory is read-only: optimized images must use
   // the bounded memory handler, and a CDN must honor their Accept variants.
   const optimizedImage = new URL("/_next/image?url=%2Fbrand%2Ftexture.jpg&w=640&q=75", origin);
-  for (const format of ["webp", "jpeg"]) {
-    let hit = false;
-    let previous: string | undefined;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const response = await get(optimizedImage, { headers: { accept: `image/${format}` } });
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get("content-type"), `image/${format}`);
-      const digest = createHash("sha256")
-        .update(Buffer.from(await response.arrayBuffer()))
-        .digest("hex");
-      if (previous) assert.equal(digest, previous, "image bytes changed between cache reads");
-      previous = digest;
-      hit ||=
-        response.headers.get("x-nextjs-cache") === "HIT" ||
-        response.headers.get("cf-cache-status") === "HIT";
+  for (const image of [optimizedImage, docsImage!])
+    for (const format of ["webp", "jpeg"]) {
+      let hit = false;
+      let previous: string | undefined;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const response = await get(image, { headers: { accept: `image/${format}` } });
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get("content-type"), `image/${format}`);
+        const digest = createHash("sha256")
+          .update(Buffer.from(await response.arrayBuffer()))
+          .digest("hex");
+        if (previous) assert.equal(digest, previous, "image bytes changed between cache reads");
+        previous = digest;
+        hit ||=
+          response.headers.get("x-nextjs-cache") === "HIT" ||
+          response.headers.get("cf-cache-status") === "HIT";
+      }
+      assert.ok(hit, `${image.pathname}: optimized ${format} never became a cache hit`);
     }
-    assert.ok(hit, `optimized ${format} never became a cache hit`);
-  }
   console.log("PASS optimized images: origin cache reuse and separate WebP/JPEG variants");
   // Exercise original public files served by Next, including the largest file.
   // Select representatives from the checkout, without a runtime media catalog.
