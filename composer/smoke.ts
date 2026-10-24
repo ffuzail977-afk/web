@@ -73,12 +73,12 @@ try {
     const html = await response.text();
     assert.match(html, /<html/);
     if (["/", "/blog"].includes(path)) {
-      assert.equal(response.headers.get("cdn-cache-control"), "public, max-age=60", path);
       assert.equal(
-        response.headers.get("cache-control"),
-        "public, max-age=0, must-revalidate",
+        response.headers.get("cdn-cache-control"),
+        "public, max-age=60, stale-while-revalidate=300",
         path,
       );
+      assert.equal(response.headers.get("cache-control"), "public, max-age=0", path);
     }
     if (["/", "/docs/composer", "/blog"].includes(path)) {
       assert.ok(response.headers.get("content-security-policy"), `${path}: missing CSP`);

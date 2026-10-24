@@ -19,8 +19,11 @@ const html = (headers: Record<string, string> = {}, status = 200) =>
 
 test("prerendered HTML has origin-owned CDN freshness and browser revalidation", async () => {
   const response = await withOriginCache(() => html())(request());
-  assert.equal(response.headers.get("cdn-cache-control"), "public, max-age=60");
-  assert.equal(response.headers.get("cache-control"), "public, max-age=0, must-revalidate");
+  assert.equal(
+    response.headers.get("cdn-cache-control"),
+    "public, max-age=60, stale-while-revalidate=300",
+  );
+  assert.equal(response.headers.get("cache-control"), "public, max-age=0");
   assert.equal(response.headers.get("vary"), "rsc, next-router-state-tree, Accept-Encoding");
   assert.equal(response.headers.get("etag"), '"unchanged"');
   assert.equal(await response.text(), "prerendered HTML");
@@ -33,6 +36,8 @@ test("dynamic/private HTML, error pages and cookie-setting responses cannot opt 
     () => html({ "cache-control": "s-maxage=0" }),
     () => html({ "x-nextjs-prerender": "" }),
     () => html({ "set-cookie": "session=secret; HttpOnly" }),
+    () => html({ vary: "*" }),
+    () => html({ vary: "Accept-Language" }),
     () => html({}, 404),
     () => html({}, 500),
   ]) {
@@ -43,7 +48,10 @@ test("dynamic/private HTML, error pages and cookie-setting responses cannot opt 
 
 test("the HTML freshness cap does not extend a shorter framework TTL", async () => {
   const response = await withOriginCache(() => html({ "cache-control": "s-maxage=30" }))(request());
-  assert.equal(response.headers.get("cdn-cache-control"), "public, max-age=30");
+  assert.equal(
+    response.headers.get("cdn-cache-control"),
+    "public, max-age=30, stale-while-revalidate=300",
+  );
 });
 
 test("explicit app CDN policies remain authoritative", async () => {
@@ -75,14 +83,16 @@ test("304 revalidation retains the HTML freshness cap without a Content-Type or 
   assert.equal(response.status, 304);
   assert.equal(response.body, null);
   assert.equal(response.headers.get("etag"), '"unchanged"');
-  assert.equal(response.headers.get("cdn-cache-control"), "public, max-age=60");
-  assert.equal(response.headers.get("cache-control"), "public, max-age=0, must-revalidate");
+  assert.equal(
+    response.headers.get("cdn-cache-control"),
+    "public, max-age=60, stale-while-revalidate=300",
+  );
+  assert.equal(response.headers.get("cache-control"), "public, max-age=0");
 });
 
-test("authorization, cookies, Next navigation, Markdown and query variants bypass shared HTML caching", async () => {
+test("authorization, Next navigation, Markdown and RSC query variants bypass shared HTML caching", async () => {
   for (const name of [
     "authorization",
-    "cookie",
     "rsc",
     "next-router-state-tree",
     "next-router-prefetch",
@@ -105,7 +115,7 @@ test("authorization, cookies, Next navigation, Markdown and query variants bypas
     const response = await withOriginCache(() => html())(request({ headers: { accept } }));
     assert.equal(response.headers.get("cdn-cache-control"), "no-store", accept);
   }
-  for (const path of ["/blog?_rsc=abc", "/blog?tag=orm", "/blog?utm_source=test"]) {
+  for (const path of ["/blog?_rsc=abc", "/blog?%5Frsc=abc"]) {
     const response = await withOriginCache(() => html())(request({}, path));
     assert.equal(response.headers.get("cdn-cache-control"), "no-store", path);
   }
@@ -135,6 +145,67 @@ test("HTML bodies stay streamed, including compressed bytes and metadata", async
   assert.equal(response.headers.get("content-encoding"), "gzip");
   assert.equal(response.headers.get("content-length"), "5");
   assert.deepEqual(new Uint8Array(await response.arrayBuffer()), bytes);
+});
+
+test("cookies and full query keys can reuse invariant prerendered HTML", async () => {
+  for (const path of ["/blog", "/blog?utm_source=example", "/blog?tag=orm"]) {
+    const response = await withOriginCache(() => html())(
+      request({ headers: { accept: "text/html", cookie: "cookieyes-consent=example" } }, path),
+    );
+    assert.equal(
+      response.headers.get("cdn-cache-control"),
+      "public, max-age=60, stale-while-revalidate=300",
+    );
+  }
+});
+
+test("only actual public files get the bounded file policy, preserving raw ranges", async () => {
+  const assets = new Set(["/blog/original.gif", "/blog/a%40b.gif"]);
+  const file = (extra: Record<string, string> = {}, status = 206) =>
+    new Response("GIF8", {
+      status,
+      headers: {
+        "content-type": "image/gif",
+        "content-length": "4",
+        "cache-control": "public, max-age=0",
+        "content-range": "bytes 0-3/20",
+        ...extra,
+      },
+    });
+  const source = file();
+  const result = await withOriginCache(() => source, assets)(request({}, "/blog/original.gif"));
+  assert.equal(
+    result.headers.get("cdn-cache-control"),
+    "public, max-age=60, stale-while-revalidate=300",
+  );
+  assert.equal(result.headers.get("cache-control"), "public, max-age=0, no-transform");
+  assert.equal(result.status, 206);
+  assert.equal(result.headers.get("content-length"), "4");
+  assert.equal(result.headers.get("content-range"), "bytes 0-3/20");
+  assert.equal(await result.text(), "GIF8");
+  const encoded = await withOriginCache(() => file(), assets)(request({}, "/blog/a@b.gif"));
+  assert.equal(encoded.headers.get("cache-control"), "public, max-age=0, no-transform");
+  const unknown = file();
+  assert.equal(
+    await withOriginCache(() => unknown, assets)(request({}, "/api/avatar.gif")),
+    unknown,
+  );
+  const privateHeaders: Record<string, string>[] = [
+    { "set-cookie": "private=1" },
+    { "cache-control": "private, max-age=0" },
+  ];
+  for (const extra of privateHeaders) {
+    const result = await withOriginCache(
+      () => file(extra),
+      assets,
+    )(request({}, "/blog/original.gif"));
+    assert.equal(result.headers.get("cdn-cache-control"), "no-store");
+  }
+  const explicit = file({ "cache-control": "public, max-age=3600" });
+  assert.equal(
+    await withOriginCache(() => explicit, assets)(request({}, "/blog/original.gif")),
+    explicit,
+  );
 });
 
 test("static assets, RSC, Markdown, range and HEAD responses keep upstream policy and bytes", async () => {
@@ -168,5 +239,8 @@ test("static assets, RSC, Markdown, range and HEAD responses keep upstream polic
   });
   const head = await withOriginCache(() => source)(request({ method: "HEAD" }));
   assert.equal(head.body, null);
-  assert.equal(head.headers.get("cdn-cache-control"), "public, max-age=60");
+  assert.equal(
+    head.headers.get("cdn-cache-control"),
+    "public, max-age=60, stale-while-revalidate=300",
+  );
 });

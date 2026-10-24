@@ -284,29 +284,36 @@ enable HTML eligibility while leaving all cache lifetimes controlled by the
 origin. See [Cloudflare's defaults](https://developers.cloudflare.com/cache/concepts/default-cache-behavior/)
 and [origin CDN headers](https://developers.cloudflare.com/cache/concepts/cdn-cache-control/).
 
-The Composer gateway caps ordinary public prerendered HTML at 60 seconds in a
-shared cache with `CDN-Cache-Control: public, max-age=60`. The browser receives
-`Cache-Control: public, max-age=0, must-revalidate`. A shorter framework TTL is
-preserved. Explicit application `CDN-Cache-Control` or
-`Cloudflare-CDN-Cache-Control` policies are authoritative. Dynamic/private HTML,
-errors, cookie-setting responses, and HTML requested with credentials, cookies,
-Next navigation headers, Markdown negotiation or a query string receive the
-default `CDN-Cache-Control: no-store`. Assets, Markdown and RSC responses retain
-the upstream framework's policy. No response bodies are buffered.
+The Composer gateway gives public prerendered HTML and the build's actual public
+files a one-minute edge lifetime, with up to five minutes of background
+revalidation: `CDN-Cache-Control: public, max-age=60, stale-while-revalidate=300`.
+Browsers revalidate HTML (`Cache-Control: public, max-age=0`). Shorter framework
+HTML lifetimes are preserved. Explicit application CDN policies and positive
+public-file lifetimes remain authoritative. Hashed Next assets retain their
+immutable caching. No bodies are buffered, and already-compressed public media
+uses `no-transform` to preserve CDN length/range handling.
 
-This policy is applied only by the Composer gateway. Vercel continues to own
-its existing deployment cache and invalidation behavior. The one-minute cap
-bounds preview HTML staleness without Cloudflare purge credentials; it is not
-instant deployment invalidation.
+Only successful prerendered HTML can opt in; dynamic/private pages, errors,
+cookie-setting responses, authorization and Next navigation requests cannot.
+Cookies do not personalize a prerendered document. Query parameters stay in the
+CDN's full cache key, so tracked visits can reuse their own public HTML entry
+without conflating search/filter URLs. `_rsc` variants remain excluded. APIs,
+RSC and Markdown retain their upstream policies and do not use this HTML rule.
+The public-file inventory is generated from all five apps' `public` directories;
+an image-shaped API URL does not qualify merely because of its suffix.
 
-For the performance experiment, the exported
-[Cloudflare Cache Rule](composer/cloudflare-cache-rule.json) enables only `/`
-and `/blog` on `prisma.sorenbs.com`. It excludes credentials, cookies, query
-strings, Next/RSC navigation and agent/Markdown variants **before cache lookup**.
-Response headers alone cannot prevent an already-cached HTML response from
-being returned to a different request variant. Other routes keep Cloudflare's
-default eligibility until their variation and freshness requirements are
-reviewed.
+This policy is applied only by the Composer gateway. Vercel retains its existing
+cache and deployment invalidation. Without purge credentials, a cached document
+can remain visible for up to six minutes (freshness plus background revalidation)
+after a deployment. This is bounded staleness, not instant deployment invalidation.
+
+The exported [Cloudflare Cache Rule](composer/cloudflare-cache-rule.json) makes
+public browser HTML on `prisma.sorenbs.com` eligible across all websites,
+including cookie-bearing and query-string visits. Authorization, Next/RSC
+navigation, API paths and agent/Markdown variants bypass **before cache lookup**.
+Origin headers still decide whether a response can be stored; the rule does not
+force dynamic or private responses into the cache. Keep the full default cache
+key, including every query parameter. Do not configure “ignore query string”.
 
 In **Cloudflare → sorenbs.com → Caching → Cache Rules → Create rule**:
 
@@ -317,10 +324,13 @@ In **Cloudflare → sorenbs.com → Caching → Cache Rules → Create rule**:
 4. Set **Edge TTL → Use cache-control header if present, bypass cache if not**.
 5. Set **Browser TTL → Respect origin**. Leave the cache key and other settings
    at their defaults. Do not choose a TTL override or ignore query strings.
-6. Enable it only after the preview returns the new one-minute origin policy.
+6. Enable it only after the preview returns the new origin policy.
 
-Verify normal HTML requests return `CF-Cache-Status: MISS` followed by `HIT`, with
-an increasing `Age`. Verify RSC, Markdown, cookies, authorization and query
-variants still reach their appropriate upstream representation. `max-age=0`
-public images will continue to revalidate until their origin policy changes;
-this setup intentionally respects that policy.
+Verify normal HTML returns `MISS` then `HIT` with increasing `Age`, including
+articles, docs, cookie-bearing and tracking-query visits. RSC, Markdown,
+authorization and dynamic unsubscribe requests must still receive their correct
+representations. Public images should become fresh hits rather than repeatedly
+reporting `REVALIDATED`. Test raw media ranges and repeat after the 60-second
+freshness boundary to verify background revalidation. A cold PoP or a URL never
+requested there still needs the US origin; this policy alone does not guarantee
+global latency parity with Vercel for every request.

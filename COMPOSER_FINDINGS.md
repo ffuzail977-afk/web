@@ -1173,3 +1173,49 @@ service source. That failed job was not retried for this experiment.
 Raw samples, 24 Lighthouse audits, 192 successful HTTP responses, request-variant
 probes, smoke logs and reproduction scripts are retained locally in
 `output/playwright/blog-performance-2026-10-24/`, with `REPORT.md` as the entry point.
+
+## Global parity investigation and follow-up — 24 October 2026
+
+The recovered domain is not yet at Vercel parity for all visitors. Seven-region
+measurements retained 176 successful responses: 28 blog GETs, 140 interleaved
+HEAD metadata checks and eight direct gateway/blog checks. Warm landing hits
+can beat Vercel, but the existing rule excludes articles, docs, cookies and
+campaign parameters, while public images revalidate on every request. This
+penalizes users outside the origin region. Three fresh interleaved mobile pairs
+also reproduce a slower LCP with cached HTML (4.887 s median versus 3.651 s on
+the cookie-bypass variant). Both load about 830 KB of fonts and compete for the
+same featured image; the exact contribution of each resource is not isolated.
+
+The [investigation report](composer/performance/2026-10-24.md) records the regional
+matrix, methodology, raw measurement identifiers, limitations, proposed fixes
+and remaining acceptance gates. Its [retained regional data](composer/performance/2026-10-24-regional-baseline.json)
+includes locations, networks, PoPs, statuses and component timings. Globalping's
+`firstByte` excludes DNS/TCP/TLS; reported TTFB adds them rather than comparing
+it directly with curl's cumulative `time_starttransfer`. An earlier full-body
+article probe attempt hit internal probe timeouts and was discarded; these
+were not counted as site failures.
+
+The follow-up gives the actual public-file inventory bounded edge freshness,
+adds background revalidation, expands the proposed HTML eligibility rule and
+allows invariant prerendered documents with cookies and distinct query keys.
+It also removes unused font preloads, prioritizes the featured blog image and
+lazy-loads author avatars without changing content, typography or original
+assets. Vercel retains its deployment cache and receives the browser resource
+improvements too. The proxy library and its runtime Vercel plan are unchanged;
+the build-generated inventory contains public file paths, not a routing plan.
+
+All five builds and the complete local Composer smoke pass, including original
+43 MB media, ranges, conditional requests, redirects, Markdown and articles.
+Local sampled RSS peaks at 459.8 MB for docs; the gateway is 142.9 MB. The largest
+bundle remains blog at 850.7 MB expanded / 686.6 MB compressed. Proxy tests (37),
+Composer tests (29), blog tests (85), Composer types and formatting pass. The
+preview deployment, new rule activation and after-change measurements remain
+to be verified before claiming an improvement or global parity.
+
+**Compute/Composer improvements:** deployment-aware edge caching and atomic
+invalidation; framework-aware HTML/RSC keys; shared cache fills and regional
+origin placement; streaming conditional/range transport; per-hop latency and
+cold-start attribution; standard regional/browser performance gates. A single
+EWR origin and a short-TTL cache cannot guarantee Vercel-equivalent latency for
+cold, unique-query or uncached navigation requests. These are explicit remaining
+requirements, not hidden behind a warm Bangkok score.
