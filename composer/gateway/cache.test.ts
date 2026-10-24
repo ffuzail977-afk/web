@@ -40,6 +40,44 @@ test("prerendered HTML has origin-owned CDN freshness and browser revalidation",
   assert.equal(await response.text(), "prerendered HTML");
 });
 
+test("alternating HTML, Markdown and uncached navigation keep one document Vary schema", async () => {
+  const handler = withOriginCache((req) => {
+    if (req.headers.has("rsc"))
+      return new Response(null, {
+        status: 307,
+        headers: { location: "/?navigation", vary: "Accept" },
+      });
+    if (req.headers.get("accept") === "text/markdown")
+      return new Response("# Public document", {
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+          "cache-control": "public, max-age=60",
+          vary: "Accept, User-Agent, RSC, Next-Router-State-Tree",
+        },
+      });
+    return html();
+  });
+  const original = await handler(request());
+  const schema = original.headers.get("vary");
+  assert.equal(
+    original.headers.get("cdn-cache-control"),
+    "public, max-age=60, stale-while-revalidate=300",
+  );
+  for (const headers of [
+    { accept: "text/markdown" },
+    { accept: "text/x-component", rsc: "1" },
+    { accept: "text/html", authorization: "Bearer test" },
+    { accept: "text/html" },
+  ] as Record<string, string>[]) {
+    const response = await handler(request({ headers }));
+    assert.equal(response.headers.get("vary"), schema);
+    if (headers.rsc || headers.authorization)
+      assert.equal(response.headers.get("cdn-cache-control"), "no-store");
+    if (headers.accept === "text/markdown")
+      assert.equal(await response.text(), "# Public document");
+  }
+});
+
 test("dynamic/private HTML, error pages and cookie-setting responses cannot opt into CDN storage", async () => {
   for (const upstream of [
     () => html({ "cache-control": "private, no-cache, no-store, max-age=0" }),
@@ -306,7 +344,8 @@ test("static assets, Markdown, range and HEAD responses keep upstream policy and
       },
     });
     const response = await withOriginCache(() => source)(request());
-    assert.equal(response, source);
+    assert.equal(response.status, 206);
+    assert.equal(response.headers.get("content-range"), "bytes 0-7/20");
     assert.equal(response.headers.get("cache-control"), "public, max-age=31536000, immutable");
     assert.equal(await response.text(), "original");
   }

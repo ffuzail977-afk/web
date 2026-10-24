@@ -58,6 +58,7 @@ async function get(url: URL, init?: RequestInit, startup = false): Promise<Respo
 }
 
 try {
+  let documentVary: string | null = null;
   for (const path of ["/", "/docs/composer", "/blog", "/handbook", "/eclipse"]) {
     const response: Response = await get(
       new URL(path, origin),
@@ -71,6 +72,7 @@ try {
       `${path}: escaped the local stack`,
     );
     const html = await response.text();
+    if (path === "/docs/composer") documentVary = response.headers.get("vary");
     assert.match(html, /<html/);
     if (["/", "/blog", "/docs/composer"].includes(path)) {
       assert.equal(
@@ -218,8 +220,18 @@ try {
     assert.equal(response.status, 200, pathname);
     assert.match(response.headers.get("content-type") ?? "", /text\/(markdown|plain)/, pathname);
     assert.ok((await response.text()).length > 0, pathname);
+    if (pathname === "/docs/composer") assert.equal(response.headers.get("vary"), documentVary);
   }
   console.log("PASS site/docs/blog Markdown negotiation through Next middleware");
+  const navigation = await get(new URL("/docs/composer", origin), {
+    headers: { rsc: "1", accept: "text/x-component" },
+    redirect: "manual",
+  });
+  assert.ok(documentVary, "docs HTML must declare negotiation inputs");
+  assert.equal(navigation.headers.get("vary"), documentVary);
+  assert.equal(navigation.headers.get("cdn-cache-control"), "no-store");
+  await navigation.arrayBuffer();
+  console.log("PASS one Vary schema for HTML, Markdown and uncached navigation");
 
   // Include content from different docs trees, rather than only a landing page.
   for (const pathname of [

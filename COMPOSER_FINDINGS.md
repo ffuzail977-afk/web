@@ -1399,3 +1399,38 @@ Final generic-origin local gates pass: 40 proxy tests, 36 Composer tests/types,
 all existing site/blog tests and the complete stack smoke. Final sampled RSS
 is docs 480.9 MB and gateway 187.9 MB. This does not yet verify the operator’s
 new Cloudflare rule: its default Vary handling must be enabled and tested.
+
+### Single-rule verification: inconsistent Vary schemas caused repeat misses
+
+The operator enabled the one-host rule with raw Vary values. On source
+643055148 the complete Cloudflare smoke passed, and 45 explicit GETs confirmed
+correct HTML/Markdown negotiation, separate WebP/JPEG hits, and BYPASS/no-store
+for authorization, RSC and _rsc requests. Blog/article, cookie and tracking
+visits hit the edge. However, the repeated matrix never hit the homepage or
+docs HTML, so this was not yet a complete success.
+
+A targeted sequence reproduced the cause on the exact same URL and user agent:
+HTML MISS/HIT/HIT; Markdown MISS/HIT; HTML MISS/HIT. The homepage similarly went
+HTML MISS/HIT/HIT; uncached RSC BYPASS; HTML MISS/HIT. This supports a mismatch
+in the edge's learned Vary schema, rather than an HTML eligibility problem.
+HTML declared the full Next/authorization/Accept/User-Agent set, Markdown used
+a smaller set, and the RSC redirect declared only Accept. These transitions
+repeatedly made a warm HTML representation miss again. Bodies also differ due
+to Cloudflare email obfuscation and docs Sentry trace metadata; body hashes
+alone cannot establish whether HTML came from cache.
+
+The origin fix canonicalizes a common lowercase, sorted Vary set for document
+HTML, Markdown, negotiated plain text and navigation/redirects, always including
+Accept-Encoding. Image and static-file negotiation remains separate. No
+Cloudflare change is needed. A regression test and real-stack smoke assert one
+schema across HTML/Markdown/RSC while keeping navigation no-store. The full
+local smoke passes; exact-source remote verification follows deployment.
+
+An additional seven-probe docs baseline retained 28 successful HEAD responses.
+All seven initial custom-domain reads were misses (0.958–1.580 s TTFB); all
+seven repeated reads were hits (0.029–0.588 s), whereas Vercel's repeated reads
+were 0.071–0.207 s. Six of seven warmed custom-domain probes beat Vercel. The
+Singapore probe (Oracle AS31898) was routed to Cloudflare MRS/Marseille, with
+about 180 ms TCP and 194 ms TLS time even on a HIT. That route needs a separate
+multi-provider check; it is not evidence that every Singapore user sees this
+path, but prevents claiming the all-users target from these samples.

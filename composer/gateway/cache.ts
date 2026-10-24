@@ -33,15 +33,27 @@ export function withOriginCache(
     );
     const asset = publicAssets.has(assetKey(url.pathname));
     const publicDocument = !asset && response.headers.get("x-composer-public-document") === "1";
+    const navigation =
+      PRIVATE_REQUEST_HEADERS.some(
+        (name) => name !== "authorization" && request.headers.has(name),
+      ) ||
+      url.searchParams.has("_rsc") ||
+      /^text\/x-component(?:;|$)/.test(contentType);
+    const negotiatedText =
+      /^text\/plain(?:;|$)/.test(contentType) &&
+      /(?:^|,)\s*(?:accept|user-agent)\s*(?:,|$)/i.test(response.headers.get("vary") ?? "");
     if (
       !asset &&
-      (/^text\/html(?:;|$)/.test(contentType) ||
+      (/^text\/(?:html|markdown)(?:;|$)/.test(contentType) ||
+        negotiatedText ||
+        navigation ||
         (response.status === 304 && (prerendered || publicDocument)))
     ) {
-      // Declare all inputs before an edge cache lookup can reuse this HTML.
-      // Next overwrites the apps' Accept Vary header; the gateway restores it
-      // and includes agent-UA negotiation plus headers that require bypass.
-      // A hostname-only CDN rule can now follow origin policy safely.
+      // Keep the same Vary schema across every representation of a document,
+      // including uncached navigation/redirects. Different schemas made the
+      // generic Cloudflare rule miss warm HTML when Markdown/RSC was read.
+      // Next overwrites the apps' Accept Vary header; restore negotiation and
+      // bypass inputs here so the edge configuration stays hostname-only.
       const headers = new Headers(response.headers);
       const vary = new Set(
         (headers.get("vary") ?? "")
@@ -49,8 +61,9 @@ export function withOriginCache(
           .map((name) => name.trim().toLowerCase())
           .filter(Boolean),
       );
-      for (const name of ["accept", "user-agent", ...PRIVATE_REQUEST_HEADERS]) vary.add(name);
-      headers.set("vary", [...vary].join(", "));
+      for (const name of ["accept", "accept-encoding", "user-agent", ...PRIVATE_REQUEST_HEADERS])
+        vary.add(name);
+      headers.set("vary", [...vary].sort().join(", "));
       response = new Response(response.body, {
         status: response.status,
         statusText: response.statusText,

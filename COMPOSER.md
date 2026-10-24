@@ -354,7 +354,10 @@ origin's exact negotiation, at the cost of some cache fragmentation. There is
 no normalization/format allowlist to maintain in Cloudflare.
 
 The gateway declares `Vary` for HTML/Markdown and the authorization/Next headers
-that affect the request's representation or storage policy. Next's image
+that affect the request's representation or storage policy. HTML, Markdown and
+uncached navigation use the same canonical Vary list for a document; changing
+that list between representations was observed turning warm cache entries
+back into misses. Next's image
 optimizer declares `Vary: Accept`. Private/no-store responses remain private;
 requests without origin freshness headers bypass caching. Next controls
 optimized-image freshness (currently four hours); replacing an image at the
