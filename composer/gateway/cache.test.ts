@@ -294,14 +294,8 @@ test("only actual public files get the bounded file policy, preserving raw range
   );
 });
 
-test("static assets, RSC, Markdown, range and HEAD responses keep upstream policy and bytes", async () => {
-  for (const contentType of [
-    "text/css",
-    "font/woff2",
-    "image/png",
-    "text/x-component",
-    "text/markdown",
-  ]) {
+test("static assets, Markdown, range and HEAD responses keep upstream policy and bytes", async () => {
+  for (const contentType of ["text/css", "font/woff2", "image/png", "text/markdown"]) {
     const source = new Response("original", {
       status: 206,
       headers: {
@@ -329,4 +323,37 @@ test("static assets, RSC, Markdown, range and HEAD responses keep upstream polic
     head.headers.get("cdn-cache-control"),
     "public, max-age=60, stale-while-revalidate=300",
   );
+});
+
+test("a generic CDN rule cannot store Next navigation's default long-lived responses", async () => {
+  const variants: RequestInit[] = [
+    { headers: { rsc: "1" } },
+    { headers: { "next-router-prefetch": "1" } },
+    { headers: { authorization: "Bearer private-test" } },
+    {},
+  ];
+  for (const init of variants) {
+    const response = await withOriginCache(
+      () =>
+        new Response("streamed RSC", {
+          headers: {
+            "content-type": "text/x-component",
+            "cache-control": "s-maxage=31536000",
+            vary: "RSC, Next-Router-State-Tree",
+          },
+        }),
+    )(request(init));
+    assert.equal(response.headers.get("cdn-cache-control"), "no-store");
+    assert.equal(await response.text(), "streamed RSC");
+  }
+  const query = await withOriginCache(
+    () =>
+      new Response("prefetch", {
+        headers: {
+          "content-type": "application/octet-stream",
+          "cache-control": "s-maxage=31536000",
+        },
+      }),
+  )(request({}, "/blog?_rsc=navigation"));
+  assert.equal(query.headers.get("cdn-cache-control"), "no-store");
 });

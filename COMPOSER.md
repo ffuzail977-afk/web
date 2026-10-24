@@ -300,7 +300,9 @@ cookie-setting responses, authorization and Next navigation requests cannot.
 Cookies do not personalize these public documents. Query parameters stay in the
 CDN's full cache key, so tracked visits can reuse their own public HTML entry
 without conflating search/filter URLs. `_rsc` variants remain excluded. APIs,
-RSC and Markdown retain their upstream policies.
+Markdown retains its upstream policy. RSC/navigation requests receive
+`CDN-Cache-Control: no-store` at the gateway until deployment-aware navigation
+caching is available; a generic CDN must not store Next’s default one-year TTL.
 The public-file inventory is generated from all five apps' `public` directories;
 an image-shaped API URL does not qualify merely because of its suffix. Public files are
 hashed as streams at build time; only paths, sizes and SHA-256 values ship in

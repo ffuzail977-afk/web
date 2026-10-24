@@ -1382,3 +1382,20 @@ from eligibility and require working Vary negotiation. Native deployment-aware
 asset storage/purge, atomic old-chunk retention, shared regional fills and
 Next-aware RSC variants remain necessary to meet the all-users target. One EWR
 origin plus an external CDN and local Bangkok wins do not prove that target.
+
+The generic-rule follow-up explicitly sets CDN no-store for Next/RSC navigation
+(including _rsc and text/x-component), even if Next emits its default one-year
+s-maxage. This keeps the former navigation exclusion at the origin rather than
+maintaining a framework-specific Cloudflare expression. The regression test
+checks the header/query/content-type paths and preserves streamed payloads.
+Prerendered HTML declares Accept/User-Agent plus authorization/Next Vary fields
+so an edge cannot reuse it before a private/navigation request reaches origin.
+During the first rollout, direct gateway image reads changed from MISS to HIT
+for both WebP and JPEG, with separate correct Content-Types; the origin hook
+works on Compute’s read-only filesystem. Network timings from that partial
+rollout are retained as diagnostic samples, not used as a browser/global result.
+
+Final generic-origin local gates pass: 40 proxy tests, 36 Composer tests/types,
+all existing site/blog tests and the complete stack smoke. Final sampled RSS
+is docs 480.9 MB and gateway 187.9 MB. This does not yet verify the operator’s
+new Cloudflare rule: its default Vary handling must be enabled and tested.

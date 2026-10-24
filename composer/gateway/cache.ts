@@ -57,6 +57,26 @@ export function withOriginCache(
         headers,
       });
     }
+    if (
+      !asset &&
+      !response.headers.has("cdn-cache-control") &&
+      !response.headers.has("cloudflare-cdn-cache-control") &&
+      (PRIVATE_REQUEST_HEADERS.some((name) => request.headers.has(name)) ||
+        url.searchParams.has("_rsc") ||
+        /^text\/x-component(?:;|$)/.test(contentType))
+    ) {
+      // The hostname-wide edge rule knows nothing about Next. Keep navigation
+      // uncached here until deployment-aware RSC caching/invalidation exists;
+      // its default one-year s-maxage is unsafe on an independent CDN.
+      const headers = new Headers(response.headers);
+      headers.set("cdn-cache-control", "no-store");
+      headers.delete("x-composer-public-document");
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    }
     // Preserve framework cache policy, streaming and byte ranges.
     // A conditional HTML response can omit Content-Type, but must retain its
     // freshness cap when the CDN merges the 304 headers into its cached copy.
