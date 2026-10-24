@@ -1,5 +1,13 @@
 # Composer and Compute findings from porting Prisma Web
 
+Latest verified status, 24 October: the single origin-controlled Cloudflare
+rule works on `prisma.sorenbs.com`. Code source `6faead1cb` passed all checks,
+five Vercel previews, Compute deployment and live cache/smoke validation.
+Composer/provider are now `0.30.0-dev.9`. Global performance parity is not yet
+achieved. The final sections record the current measurements and supersede
+earlier pending-verification notes; the original porting observations remain
+below as history. No production cutover was performed.
+
 Recorded on 12 October 2026. Tested with Composer and the Prisma Cloud target
 0.29.1, Prisma CLI 8.0.0-rc.22, Next.js 16.3.4, pnpm 12.3.4, and Bun 1.4.3.
 The target constraints are 1 GB memory and 1 GB files per Compute service.
@@ -1545,3 +1553,77 @@ Composer builds, the extended full-stack smoke, docs type checking and all
 729 current files' link checks. Sampled docs RSS after smoke is 565.5 MB and
 gateway 171.6 MB; these are samples, not peak/load guarantees. Docs assembles
 to 432.2 MB / 230.0 MB compressed. Remote deployment/remeasurement follows.
+
+
+Repeated regional pairs retained from source `348d0fa68` (milliseconds; each
+cell is Compute/Cloudflare versus Vercel, including connection setup):
+
+| Probe | Home | Image | Article | Docs | Avatar | Cookie | Tracking |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Buffalo (AS36352) | 120 / 138 | 106 / 110 | 104 / 183 | 111 / 141 | 96 / 162 | 121 / 175 | 88 / 137 |
+| Los Angeles (AS36352) | 70 / 90 | 54 / 61 | 42 / 216 | 48 / 139 | 42 / 55 | 50 / 97 | 63 / 133 |
+| Falkenstein (AS24940) | 65 / 71 | 65 / 54 | 55 / 123 | 56 / 106 | 76 / 249 | 54 / 193 | 70 / 97 |
+| Singapore (AS31898) | 588 / 49 | 1602 / 114 | 575 / 76 | 1609 / 74 | 1733 / 38 | 831 / 64 | 1108 / 68 |
+| Sao Paulo (AS31898) | 46 / 42 | 54 / 32 | 38 / 282 | 48 / 71 | 25 / 110 | 34 / 68 | 30 / 63 |
+| Johannesburg (AS37153) | 212 / 158 | 64 / 100 | 38 / 455 | 56 / 173 | 42 / 407 | 26 / 410 | 37 / 395 |
+| Sydney (AS31898) | 54 / 61 | 30 / 29 | 30 / 357 | 32 / 362 | 32 / 94 | 43 / 384 | 40 / 87 |
+
+
+### Docs texture correction: final deployed verification
+
+Code source `6faead1cbd2c913bf18fdce56fc02c587b68c9b0` passed all 20
+successful PR checks, all five Vercel previews and [Compute deployment
+40108099618](https://github.com/prisma/web/actions/runs/40108099618).
+Its direct post-deploy smoke and the complete custom-domain smoke pass,
+including the actual docs image extracted from HTML, cache reuse and separate
+WebP/JPEG representations. The 45-GET cache matrix and 13-request interleaved
+sequence were repeated on this deployment with no failures. One hostname-wide
+Cloudflare rule remains sufficient; no account/rule changes were made by the
+agent. The manual operator update plus the origin fixes are both required;
+this is not a clean same-source before/after experiment of the rule alone.
+
+Twelve fresh-browser docs audits repeat the original method, three runs per
+profile/target, with unchanged Compute service version IDs and unchanged
+production static-asset signatures throughout. All twelve recorded image
+requests return 200, with no first-party image/asset HTTP errors. The inherited
+Sentry tunnel's 403s occur on both hosts. Raw results and the summarized
+`verified-docs-texture-browser-comparison.json` are retained alongside earlier
+failed/provisional traces. These supersede the missing-texture docs numbers.
+
+| Docs metric, median of 3 | Compute + Cloudflare | prisma.io / Vercel |
+| --- | ---: | ---: |
+| Desktop score | 81 | 85 |
+| Desktop simulated LCP | 3.002 s | 2.301 s |
+| Desktop observed LCP | 0.252 s | 0.428 s |
+| Desktop transfer | 4,342,198 bytes | 5,074,266 bytes |
+| Mobile score | 61 | 59 |
+| Mobile applied LCP | 3.390 s | 3.530 s |
+| Mobile transfer | 3,519,265 bytes | 4,274,146 bytes |
+
+Desktop simulation is worse despite faster observed paint; do not collapse
+those metrics or describe docs as an unqualified performance win. Mobile is
+roughly comparable in this small lab sample. The first cold desktop docs run
+painted at 1.186 s versus Vercel's 0.419 s; the two subsequent Compute runs
+painted at 0.246/0.252 s. Cold optimizations and cache fills remain material.
+The texture is now present in both targets; its 1920-pixel WebP response here
+is about 885 KB, versus about 856 KB for Vercel's JPEG in this trace. An
+optimized format does not automatically imply a smaller response for noise.
+
+Homepage mobile payload analysis on source `348d0fa68`, run 2, identifies a
+separate application cost: approximately 4.19 MB images, 0.647 MB video and
+1.36 MB scripts. Large requests include the original 860 KB grain texture,
+648 KB CPU art, 510 KB compute art, and the looping CTA video. Its LCP trace
+attributes about 9.794 s to resource loading, versus 71 ms document TTFB.
+This points to media sizing/scheduling and competing transfers, rather than
+slow HTML alone. Prioritize smaller or appropriately sized decorative media,
+defer offscreen art/video and audit third-party script work. CDN hits alone
+cannot turn the observed 10.187 s median homepage mobile LCP into a good
+experience, even though Vercel was slower in these samples.
+
+The current result is verified origin-controlled caching and working Compute
+images, with measurable local/regional wins, not the all-users performance
+target. Production work still includes deployment-aware invalidation/old-asset
+retention, cold/shared fills and navigation caching, plus investigation of the
+Cloudflare processing paths documented above. A native Compute CDN and a
+framework-supported bounded writable/image-cache strategy would remove several
+adapters and external configuration requirements from this setup.
