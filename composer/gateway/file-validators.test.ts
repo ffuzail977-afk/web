@@ -4,10 +4,12 @@ import { test } from "node:test";
 import { withFileValidators } from "./file-validators.ts";
 
 test("equal-size asset edits have different validators despite the same archive mtime", async () => {
-  const tag = (body: string) => `"sha256-${createHash("sha256").update(body).digest("hex")}"`;
+  const tag = (body: string) => `"asset-v1-${createHash("sha256").update(body).digest("hex")}"`;
   const old = tag("old!");
   const current = tag("new!");
-  const files = new Map([["/file.gif", { bytes: 4, sha256: current.slice(8, -1) }]]);
+  const files = new Map([
+    ["/file.gif", { bytes: 4, sha256: createHash("sha256").update("new!").digest("hex") }],
+  ]);
   const seen: Request[] = [];
   const handler = withFileValidators((request) => {
     seen.push(request);
@@ -50,7 +52,7 @@ test("encoded representations have weak content validators and unknown paths are
     new Map([["/file.svg", { bytes: 4, sha256: "digest" }]]),
   );
   const response = await handler(new Request("https://web.test/file.svg"));
-  assert.equal(response.headers.get("etag"), 'W/"sha256-digest"');
+  assert.equal(response.headers.get("etag"), 'W/"asset-v1-digest"');
   assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([31, 139, 8]));
   const original = source();
   assert.equal(

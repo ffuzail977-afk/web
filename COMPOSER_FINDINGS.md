@@ -1257,3 +1257,40 @@ not a production replacement for Vercel's deployment cache. This remains an
 explicit parity/release gate in the report. The same-source Vercel preview is SSO
 protected, so the public production control still has different content/build
 and analytics configuration.
+
+
+### Range failure traced to Bun's streaming response framing
+
+The CDN was receiving a full streamed response without Content-Length. A bare
+Bun 1.4.3 reproduction serves the original Bun.file with its 43,470,561-byte
+length, but fetched/ReadableStream responses discard a manually supplied length
+and become chunked. HEAD and short ranges retain a length, which obscured this
+in the earlier probes. Direct streamed GETs on Compute show the same behavior.
+No-transform cannot repair a header removed before Cloudflare receives it.
+
+A Node HTTP server running on the same Bun preserves the exact length while
+streaming. The OSS package now exports createHttpServer from @prisma/proxy/node,
+and the gateway uses it. This keeps Bun and streams, without a Node binary,
+extra dependency or full-file buffer. Node and Bun wire tests cover a 2 MiB
+multi-chunk body, HEAD, 304 without an incorrect zero length, gzip bytes, separate
+cookies, streamed POST, cancellation and abort propagation. A 128 MiB synthetic
+response to a 1 KiB/s client produced only 1,966,080 bytes before cancellation;
+the producer did not buffer the whole body. The complete local stack passes the
+new full-GET length assertions, original media/ranges, article CDN policy,
+redirects and Markdown. Gateway sampled RSS is 187.7 MB; docs is 407.8 MB.
+
+The content ETag namespace is asset-v1, forcing one replacement of CDN objects
+that were stored without Content-Length rather than perpetually validating
+that old metadata. There are now 40 Node library tests, 32 Composer tests and
+three Bun HTTP-adapter tests. Live CDN verification remains pending. Composer
+should recommend or provide a streaming HTTP adapter with known-length support
+when generating proxy examples for Bun services.
+
+The final cache-policy source f1db7ec09 passed all GitHub checks, all five Vercel
+previews and Compute deployment 40077691873. On that exact deployment, a fresh
+seven-region baseline retained 112 successful HEAD measurements for articles,
+docs, cookies and tracking-query visits before widening the eligibility rule.
+All 56 custom-domain responses still reported DYNAMIC, despite correct origin
+CDN headers. Raw responses and service/version snapshots are retained locally
+under output/playwright/global-performance-2026-10-24. The rule update is a
+separate operator step; source changes do not make Cloudflare HTML eligible.

@@ -32,7 +32,7 @@ export function withFileValidators(
   return async (request) => {
     const file = files.get(assetKey(new URL(request.url).pathname));
     if (!file || !["GET", "HEAD"].includes(request.method)) return handler(request);
-    const expected = `"sha256-${file.sha256}"`;
+    const expected = `"asset-v1-${file.sha256}"`;
     const incoming = request.headers;
     const headers = new Headers(incoming);
     // Next's size/mtime validators cannot detect equal-size edits after archive

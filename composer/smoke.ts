@@ -123,6 +123,11 @@ try {
     // Full public files can take longer than a page from a distant client.
     const response = await get(url, { headers, signal: AbortSignal.timeout(120_000) });
     assert.equal(response.status, 200, file.path);
+    assert.equal(
+      response.headers.get("content-length"),
+      String(file.bytes),
+      `${file.path}: streamed GET length`,
+    );
     assert.match(
       response.headers.get("cdn-cache-control") ?? "",
       /^public, max-age=60, stale-while-revalidate=300(?:, no-transform)?$/,

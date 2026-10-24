@@ -290,8 +290,9 @@ revalidation: `CDN-Cache-Control: public, max-age=60, stale-while-revalidate=300
 Browsers revalidate HTML (`Cache-Control: public, max-age=0`). Shorter framework
 HTML lifetimes are preserved. Explicit application CDN policies and positive
 public-file lifetimes remain authoritative. Hashed Next assets retain their
-immutable caching. No bodies are buffered, and already-compressed public media
-uses `no-transform` to preserve CDN length/range handling.
+immutable caching. No bodies are buffered. The gateway uses the library’s Node HTTP adapter on
+Bun to preserve known lengths on streamed responses; `Bun.serve` discards these
+lengths. Already-compressed public media also uses `no-transform`.
 
 Only successful prerendered HTML or explicitly public MDX documents can opt in;
 other request-rendered/private pages, errors,
