@@ -5,6 +5,7 @@ import { gatewaySites } from "./config.ts";
 import { proxyRequestHeaders } from "../request-origin.ts";
 import { withOriginCache } from "./cache.ts";
 import { readFileSync } from "node:fs";
+import type { PublicFile } from "./file-validators.ts";
 
 const { agentFront, proxyKey } = service.input();
 const origins = Object.fromEntries(
@@ -27,8 +28,12 @@ Bun.serve({
   fetch: withOriginCache(
     (request) =>
       new URL(request.url).pathname === "/_composer/health" ? new Response("ok") : proxy(request),
-    new Set<string>(
-      JSON.parse(readFileSync(new URL("./public-assets.json", import.meta.url), "utf8")),
+    new Map(
+      Object.entries(
+        JSON.parse(
+          readFileSync(new URL("./public-assets.json", import.meta.url), "utf8"),
+        ) as Record<string, PublicFile>,
+      ),
     ),
   ),
 });

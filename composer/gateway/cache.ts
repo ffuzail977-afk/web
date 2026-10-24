@@ -1,4 +1,5 @@
 type Handler = (request: Request) => Response | Promise<Response>;
+import { assetKey, withFileValidators, type PublicFile } from "./file-validators.ts";
 
 const PRIVATE_REQUEST_HEADERS = [
   "authorization",
@@ -17,34 +18,28 @@ const SUPPORTED_VARY = new Set([
   ...PRIVATE_REQUEST_HEADERS,
 ]);
 
-function assetKey(path: string) {
-  try {
-    return path.split("/").map(decodeURIComponent).map(encodeURIComponent).join("/");
-  } catch {
-    return "";
-  }
-}
-
 /** CDN policy for Composer's public files/HTML; Vercel keeps its own caching. */
 export function withOriginCache(
   handler: Handler,
-  publicAssets: ReadonlySet<string> = new Set(),
+  publicAssets: ReadonlyMap<string, PublicFile> = new Map(),
 ): Handler {
+  const read = withFileValidators(handler, publicAssets);
   return async (request) => {
-    const response = await handler(request);
+    const response = await read(request);
     const url = new URL(request.url);
     const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
     const prerendered = /(?:^|,)\s*1\s*(?:,|$)/.test(
       response.headers.get("x-nextjs-prerender") ?? "",
     );
     const asset = publicAssets.has(assetKey(url.pathname));
+    const publicDocument = !asset && response.headers.get("x-composer-public-document") === "1";
     // Preserve framework cache policy, streaming and byte ranges.
     // A conditional HTML response can omit Content-Type, but must retain its
     // freshness cap when the CDN merges the 304 headers into its cached copy.
     if (
       !asset &&
       !/^text\/html(?:;|$)/.test(contentType) &&
-      !(response.status === 304 && prerendered)
+      !(response.status === 304 && (prerendered || publicDocument))
     )
       return response;
     // An explicit app-owned CDN policy is authoritative.
@@ -55,17 +50,21 @@ export function withOriginCache(
       return response;
 
     const headers = new Headers(response.headers);
+    headers.delete("x-composer-public-document");
     const control = headers.get("cache-control")?.toLowerCase() ?? "";
     const sharedAge = Number(control.match(/(?:^|,)\s*s-maxage\s*=\s*(\d+)\s*(?:,|$)/)?.[1] ?? 0);
     const publicFile = asset && /(?:^|,)\s*public\s*(?:,|$)/.test(control);
     // An app's positive public-file lifetime already enables edge reuse.
-    if (publicFile && /(?:^|,)\s*(?:s-maxage|max-age)\s*=\s*[1-9]\d*\s*(?:,|$)/.test(control))
+    if (
+      publicFile &&
+      /(?:^|,)\s*(?:s-maxage\s*=\s*\d+|max-age\s*=\s*[1-9]\d*)\s*(?:,|$)/.test(control)
+    )
       return response;
     const accept = request.headers.get("accept")?.toLowerCase() ?? "";
     const cacheable =
       ["GET", "HEAD"].includes(request.method) &&
       [200, 206, 304].includes(response.status) &&
-      !/(?:^|,)\s*(?:private|no-store|no-cache)\b/.test(control) &&
+      (publicDocument || !/(?:^|,)\s*(?:private|no-store|no-cache)\b/.test(control)) &&
       !headers.has("set-cookie") &&
       !(headers.get("vary") ?? "")
         .split(",")
@@ -76,29 +75,38 @@ export function withOriginCache(
       cacheable &&
       !asset &&
       response.status !== 206 &&
-      prerendered &&
-      sharedAge > 0 &&
+      (publicDocument || (prerendered && sharedAge > 0)) &&
       accept.includes("text/html") &&
       !accept.includes("text/markdown") &&
       !accept.includes("text/x-component");
-    // A prerendered HTML document is independent of cookies/query parameters.
+    // Prerendered and explicitly opted-in public documents are independent of
+    // cookies/query parameters. Other SSR pages remain private.
     // Dynamic pages, APIs and Next navigation never qualify. The edge retains
     // the full query string in its cache key; no parameters are discarded.
     const publicAsset = cacheable && publicFile;
+
+    // Already-compressed media should retain Content-Length and byte ranges
+    // through a CDN. Leave text/SVG compression enabled.
+    const noTransform =
+      publicAsset &&
+      (/^(?:image\/(?!svg\+xml)|audio\/|video\/|font\/)/.test(contentType) ||
+        // Next removes Content-Type on a conditional 304. Retain no-transform
+        // when the CDN merges these headers into its previous complete response.
+        (response.status === 304 &&
+          /\.(?:png|jpe?g|gif|webp|avif|ico|mp4|webm|mp3|ogg|wav|woff2?|ttf|otf|eot)$/i.test(
+            url.pathname,
+          )));
 
     // A short freshness window bounds staleness without deployment-time purge
     // credentials. Browsers revalidate; CDNs can reuse public HTML for a minute.
     headers.set(
       "cdn-cache-control",
       publicHtml || publicAsset
-        ? `public, max-age=${publicHtml ? Math.min(sharedAge, 60) : 60}, stale-while-revalidate=300`
+        ? `public, max-age=${publicHtml && sharedAge > 0 ? Math.min(sharedAge, 60) : 60}, stale-while-revalidate=300${noTransform ? ", no-transform" : ""}`
         : "no-store",
     );
     if (publicHtml) headers.set("cache-control", "public, max-age=0");
-    // Already-compressed media should retain Content-Length and byte ranges
-    // through a CDN. Leave text/SVG compression enabled.
-    if (publicAsset && /^(?:image\/(?!svg\+xml)|audio\/|video\/|font\/)/.test(contentType))
-      headers.set("cache-control", `${control}, no-transform`);
+    if (noTransform) headers.set("cache-control", `${control}, no-transform`);
 
     return new Response(response.body, {
       status: response.status,

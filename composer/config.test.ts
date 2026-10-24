@@ -64,7 +64,17 @@ test("Composer preserves each app's declared redirects, headers, and non-zone re
   const vercel = config(false);
   const composer = config(true);
   for (const name of ["site", "docs", "blog", "handbook", "eclipse"]) {
+    const optIns = composer[name].routing.headers.flatMap((rule: { headers: { key: string }[] }) =>
+      rule.headers.filter((header) => header.key === "X-Composer-Public-Document"),
+    );
+    assert.equal(optIns.length, name === "docs" ? 2 : name === "blog" ? 1 : 0, name);
     assert.deepEqual(composer[name].routing.redirects, vercel[name].routing.redirects, name);
+    // The only Composer-specific app header opts public MDX documents into
+    // the gateway's bounded CDN cache. All existing Vercel headers survive.
+    for (const rule of composer[name].routing.headers)
+      rule.headers = rule.headers.filter(
+        (header: { key: string }) => header.key !== "X-Composer-Public-Document",
+      );
     assert.deepEqual(composer[name].routing.headers, vercel[name].routing.headers, name);
     if (name !== "site") {
       assert.deepEqual(composer[name].routing.rewrites, vercel[name].routing.rewrites, name);

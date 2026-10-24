@@ -72,7 +72,7 @@ try {
     );
     const html = await response.text();
     assert.match(html, /<html/);
-    if (["/", "/blog"].includes(path)) {
+    if (["/", "/blog", "/docs/composer"].includes(path)) {
       assert.equal(
         response.headers.get("cdn-cache-control"),
         "public, max-age=60, stale-while-revalidate=300",
@@ -123,6 +123,11 @@ try {
     // Full public files can take longer than a page from a distant client.
     const response = await get(url, { headers, signal: AbortSignal.timeout(120_000) });
     assert.equal(response.status, 200, file.path);
+    assert.match(
+      response.headers.get("cdn-cache-control") ?? "",
+      /^public, max-age=60, stale-while-revalidate=300(?:, no-transform)?$/,
+      file.path,
+    );
     const bytes = Buffer.from(await response.arrayBuffer());
     const hash = createHash("sha256");
     for await (const chunk of createReadStream(file.source)) hash.update(chunk);
@@ -197,7 +202,7 @@ try {
     "/docs/orm/v7/reference/prisma-schema-reference",
     "/docs/orm/v6/reference/prisma-client-reference",
   ]) {
-    const response = await get(new URL(pathname, origin));
+    const response = await get(new URL(pathname, origin), { headers: { accept: "text/html" } });
     assert.equal(response.status, 200, pathname);
     assert.equal(
       new URL(response.url).origin,
@@ -205,6 +210,11 @@ try {
       `${pathname}: escaped the local stack`,
     );
     assert.match(await response.text(), /<html/);
+    assert.equal(
+      response.headers.get("cdn-cache-control"),
+      "public, max-age=60, stale-while-revalidate=300",
+      pathname,
+    );
   }
   console.log("PASS blog and current/legacy docs articles");
 

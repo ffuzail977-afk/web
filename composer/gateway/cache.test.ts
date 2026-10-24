@@ -159,8 +159,61 @@ test("cookies and full query keys can reuse invariant prerendered HTML", async (
   }
 });
 
+test("explicit public MDX documents can use edge caching without a runtime full-route disk cache", async () => {
+  const document = (extra: Record<string, string> = {}, status = 200) =>
+    html(
+      {
+        "x-nextjs-prerender": "",
+        "cache-control": "private, no-cache, no-store, max-age=0, must-revalidate",
+        "x-composer-public-document": "1",
+        ...extra,
+      },
+      status,
+    );
+  const response = await withOriginCache(() => document())(request());
+  assert.equal(
+    response.headers.get("cdn-cache-control"),
+    "public, max-age=60, stale-while-revalidate=300",
+  );
+  assert.equal(response.headers.get("cache-control"), "public, max-age=0");
+  assert.equal(response.headers.has("x-composer-public-document"), false);
+  const conditional = await withOriginCache(
+    () =>
+      new Response(null, {
+        status: 304,
+        headers: {
+          "x-composer-public-document": "1",
+          "cache-control": "private, no-cache, no-store, max-age=0",
+        },
+      }),
+  )(request());
+  assert.equal(
+    conditional.headers.get("cdn-cache-control"),
+    "public, max-age=60, stale-while-revalidate=300",
+  );
+  for (const status of [404, 500]) {
+    const response = await withOriginCache(() => document({}, status))(request());
+    assert.equal(response.headers.get("cdn-cache-control"), "no-store");
+  }
+  for (const extra of [{ "set-cookie": "session=secret" }, { vary: "Cookie" }] as Record<
+    string,
+    string
+  >[]) {
+    const response = await withOriginCache(() => document(extra))(request());
+    assert.equal(response.headers.get("cdn-cache-control"), "no-store");
+  }
+  for (const header of ["authorization", "rsc", "next-router-prefetch"]) {
+    const response = await withOriginCache(() => document())(
+      request({ headers: { accept: "text/html", [header]: "1" } }),
+    );
+    assert.equal(response.headers.get("cdn-cache-control"), "no-store");
+  }
+});
+
 test("only actual public files get the bounded file policy, preserving raw ranges", async () => {
-  const assets = new Set(["/blog/original.gif", "/blog/a%40b.gif"]);
+  const assets = new Map(
+    ["/blog/original.gif", "/blog/a%40b.gif"].map((path) => [path, { bytes: 20, sha256: "test" }]),
+  );
   const file = (extra: Record<string, string> = {}, status = 206) =>
     new Response("GIF8", {
       status,
@@ -176,7 +229,7 @@ test("only actual public files get the bounded file policy, preserving raw range
   const result = await withOriginCache(() => source, assets)(request({}, "/blog/original.gif"));
   assert.equal(
     result.headers.get("cdn-cache-control"),
-    "public, max-age=60, stale-while-revalidate=300",
+    "public, max-age=60, stale-while-revalidate=300, no-transform",
   );
   assert.equal(result.headers.get("cache-control"), "public, max-age=0, no-transform");
   assert.equal(result.status, 206);
@@ -205,6 +258,25 @@ test("only actual public files get the bounded file policy, preserving raw range
   assert.equal(
     await withOriginCache(() => explicit, assets)(request({}, "/blog/original.gif")),
     explicit,
+  );
+  const disabled = file({ "cache-control": "public, max-age=0, s-maxage=0" });
+  assert.equal(
+    await withOriginCache(() => disabled, assets)(request({}, "/blog/original.gif")),
+    disabled,
+  );
+  const conditional = new Response(null, {
+    status: 304,
+    headers: { "cache-control": "public, max-age=0", etag: '"original"' },
+  });
+  const revalidated = await withOriginCache(
+    () => conditional,
+    assets,
+  )(request({}, "/blog/original.gif"));
+  assert.equal(revalidated.headers.get("cache-control"), "public, max-age=0, no-transform");
+  assert.equal(revalidated.body, null);
+  assert.equal(
+    revalidated.headers.get("cdn-cache-control"),
+    "public, max-age=60, stale-while-revalidate=300, no-transform",
   );
 });
 

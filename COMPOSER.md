@@ -284,7 +284,7 @@ enable HTML eligibility while leaving all cache lifetimes controlled by the
 origin. See [Cloudflare's defaults](https://developers.cloudflare.com/cache/concepts/default-cache-behavior/)
 and [origin CDN headers](https://developers.cloudflare.com/cache/concepts/cdn-cache-control/).
 
-The Composer gateway gives public prerendered HTML and the build's actual public
+The Composer gateway gives public prerendered HTML, opted-in public MDX documents and the build's actual public
 files a one-minute edge lifetime, with up to five minutes of background
 revalidation: `CDN-Cache-Control: public, max-age=60, stale-while-revalidate=300`.
 Browsers revalidate HTML (`Cache-Control: public, max-age=0`). Shorter framework
@@ -293,19 +293,35 @@ public-file lifetimes remain authoritative. Hashed Next assets retain their
 immutable caching. No bodies are buffered, and already-compressed public media
 uses `no-transform` to preserve CDN length/range handling.
 
-Only successful prerendered HTML can opt in; dynamic/private pages, errors,
+Only successful prerendered HTML or explicitly public MDX documents can opt in;
+other request-rendered/private pages, errors,
 cookie-setting responses, authorization and Next navigation requests cannot.
-Cookies do not personalize a prerendered document. Query parameters stay in the
+Cookies do not personalize these public documents. Query parameters stay in the
 CDN's full cache key, so tracked visits can reuse their own public HTML entry
 without conflating search/filter URLs. `_rsc` variants remain excluded. APIs,
 RSC and Markdown retain their upstream policies and do not use this HTML rule.
 The public-file inventory is generated from all five apps' `public` directories;
-an image-shaped API URL does not qualify merely because of its suffix.
+an image-shaped API URL does not qualify merely because of its suffix. Public files are
+hashed as streams at build time; only paths, sizes and SHA-256 values ship in
+the roughly 442 KB inventory. The gateway supplies content validators instead
+of Next's size/mtime tags, which can miss same-size edits when archive timestamps
+are fixed. Identity files have strong ETags; encoded files have weak validators.
+Conditional reads and If-Range use the content digest, without buffering bodies.
+
+Docs and blog article routes deliberately render repository MDX on demand to fit
+the file budget. Their Composer-only `X-Composer-Public-Document` response marker
+opts them into the same policy without an unbounded runtime full-route cache.
+The gateway consumes that annotation, still checking status, request variants,
+Set-Cookie and Vary. Never annotate a route that reads user/session/request data.
+Vercel receives none of these annotations or cache policy overrides.
 
 This policy is applied only by the Composer gateway. Vercel retains its existing
 cache and deployment invalidation. Without purge credentials, a cached document
 can remain visible for up to six minutes (freshness plus background revalidation)
 after a deployment. This is bounded staleness, not instant deployment invalidation.
+Before production, add deployment-aware purge or retention of old hashed assets:
+stale HTML can reference chunks removed by a newer deployment. A short TTL is
+not a substitute for that release boundary.
 
 The exported [Cloudflare Cache Rule](composer/cloudflare-cache-rule.json) makes
 public browser HTML on `prisma.sorenbs.com` eligible across all websites,

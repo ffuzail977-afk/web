@@ -1208,7 +1208,7 @@ All five builds and the complete local Composer smoke pass, including original
 43 MB media, ranges, conditional requests, redirects, Markdown and articles.
 Local sampled RSS peaks at 459.8 MB for docs; the gateway is 142.9 MB. The largest
 bundle remains blog at 850.7 MB expanded / 686.6 MB compressed. Proxy tests (37),
-Composer tests (29), blog tests (85), Composer types and formatting pass. The
+Composer tests (32), blog tests (85), Composer types and formatting pass. The
 preview deployment, new rule activation and after-change measurements remain
 to be verified before claiming an improvement or global parity.
 
@@ -1219,3 +1219,41 @@ cold-start attribution; standard regional/browser performance gates. A single
 EWR origin and a short-TTL cache cannot guarantee Vercel-equivalent latency for
 cold, unique-query or uncached navigation requests. These are explicit remaining
 requirements, not hidden behind a warm Bangkok score.
+
+
+### Public SSR documents and content validators
+
+Further investigation found that article generation is intentionally disabled in
+Composer builds to fit the file budget. Docs/blog articles therefore carry
+Next's private SSR cache policy; widening the Cloudflare rule alone cannot cache
+them. Composer-only route annotations now opt repository-backed public MDX into
+the gateway policy, retaining request/status/Set-Cookie/Vary checks. Other SSR
+pages stay private. This avoids an unbounded generated HTML/RSC runtime disk cache.
+The separate Vercel-mode docs build, docs types and links (729 files) pass.
+The final local smoke explicitly checks article CDN headers; its largest sampled
+RSS is docs at 413.2 MB and gateway at 143.0 MB.
+
+The first follow-up preview (`d011884df`) passed every GitHub check and all Vercel
+previews. Public images became fresh hits, but Cloudflare still returned a full
+200 for the largest GIF range, including on a fresh query key with no-transform
+in standard Cache-Control. Bypassing Cloudflare while preserving the custom Host
+returns the correct Content-Length and 16-byte 206. The policy now also puts
+no-transform in CDN-Cache-Control and retains it on 304s; the new deployed result
+must still be measured, rather than claiming that this candidate fixes the CDN.
+
+The live Next file ETag encodes file size plus a fixed one-second timestamp
+(`W/"2974ee1-3e8"` for the GIF). Same-size edits can therefore alias across
+reproducible artifacts. The responsible archive/restore layer is not yet isolated.
+The build now streams SHA-256 hashes into the 2,708-file inventory (442 KB), and
+the gateway substitutes content validators for these size/mtime tags. Conditional
+reads, preconditions and If-Range are checked without buffering file bodies;
+encoded representations use weak tags and unreliable Last-Modified dates are
+removed. Equal-size edits are covered by regression tests. Compute should provide
+content validators and correct range transport for static artifacts natively.
+
+Deployment-aware invalidation also needs asset retention or purge: stale HTML
+can reference hashed chunks removed by a newer version. The six-minute bound is
+not a production replacement for Vercel's deployment cache. This remains an
+explicit parity/release gate in the report. The same-source Vercel preview is SSO
+protected, so the public production control still has different content/build
+and analytics configuration.

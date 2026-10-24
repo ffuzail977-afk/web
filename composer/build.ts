@@ -2,7 +2,7 @@ import "./env.ts";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
-import { publicAssetPaths } from "./public-assets.ts";
+import { publicAssetInventory } from "./public-assets.ts";
 import { websiteBuild } from "./website-build.ts";
 import { checkBudget } from "./budget.ts";
 
@@ -30,7 +30,7 @@ await rm(gateway, { recursive: true, force: true });
 await mkdir(gateway, { recursive: true });
 await writeFile(
   new URL("public-assets.json", gateway),
-  JSON.stringify(await publicAssetPaths(root, names)),
+  JSON.stringify(await publicAssetInventory(root, names)),
 );
 run("bun", [
   "build",

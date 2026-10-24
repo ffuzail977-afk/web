@@ -1,4 +1,4 @@
-import { composerNextConfig } from "../../composer/next-config.mjs";
+import { composerNextConfig, composerPublicDocumentHeaders } from "../../composer/next-config.mjs";
 import { withSentryConfig } from "@sentry/nextjs/config";
 import { createMDX } from "fumadocs-mdx/next";
 
@@ -793,12 +793,12 @@ const config = {
       },
       {
         source: "/",
-        headers: docsRootMarkdownHeaders,
+        headers: [...docsRootMarkdownHeaders, ...composerPublicDocumentHeaders],
       },
       {
         source:
           "/:path((?!api(?:/|$)|llms(?:\\.|/|$)|og(?:/|$)|rss\\.xml$|sitemap(?:\\.xml)?$|favicon\\.ico$|.*\\.[^/]+$).+)",
-        headers: docsMarkdownHeaders,
+        headers: [...docsMarkdownHeaders, ...composerPublicDocumentHeaders],
       },
     ];
   },
