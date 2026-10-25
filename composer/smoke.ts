@@ -77,9 +77,9 @@ try {
     }
     if (path === "/" || path === "/docs/composer") {
       assert.ok(html.includes("brand-grain"), `${path}: missing brand grain`);
-      const urls = new Set(
+      const urls: Set<string> = new Set<string>(
         [...html.matchAll(/(?:src|srcset)="([^" ]*texture\.[^" ]+)"/gi)].map(
-          (match) => new URL(match[1].replaceAll("&amp;", "&"), origin).href,
+          (match): string => new URL(match[1].replaceAll("&amp;", "&"), origin).href,
         ),
       );
       for (const format of ["avif", "jpg"]) {
