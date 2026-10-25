@@ -1627,3 +1627,13 @@ retention, cold/shared fills and navigation caching, plus investigation of the
 Cloudflare processing paths documented above. A native Compute CDN and a
 framework-supported bounded writable/image-cache strategy would remove several
 adapters and external configuration requirements from this setup.
+
+
+## Application and CDN bottlenecks — 25 October
+
+The [follow-up investigation](composer/performance/2026-10-25.md) separates
+application downloads, cold/expired cache entries and network paths. It records
+the new seven-region baseline, reused-connection origin/proxy measurements,
+asset/font/chat/video changes under verification, and concrete requirements for
+a deployment-integrated Compute CDN. Final measurements will be recorded after
+the exact preview deployment; no global parity claim is made.

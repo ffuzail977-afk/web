@@ -13,28 +13,8 @@ import { GoogleTagManager } from "@prisma-docs/ui/components/google-tag-manager"
 import { OpenAiPixel } from "@prisma-docs/ui/components/openai-pixel";
 import { PromptwatchScript } from "@prisma-docs/ui/components/promptwatch-script";
 
-// Inter is vendored inside @prisma/eclipse now, so load the same files here
-// rather than pulling a second copy from Google.
-const inter = localFont({
-  src: [
-    {
-      path: "../../../../packages/eclipse/src/static/fonts/InterVariable.woff2",
-      weight: "100 900",
-      style: "normal",
-    },
-    {
-      path: "../../../../packages/eclipse/src/static/fonts/InterVariable-Italic.woff2",
-      weight: "100 900",
-      style: "italic",
-    },
-  ],
-  variable: "--font-inter",
-  display: "swap",
-  // Load the faces actually used by this page through CSS. Preloading both
-  // full Inter files also downloads 388 KB of unused italics on the archive.
-  preload: false,
-});
-
+// Inter's shared Unicode-ranged CSS keeps one composite family, including
+// non-Latin text, without preloading two full font files.
 // Sora replaces Mona Sans VF as the display face. next/font/local has no
 // per-source `unicode-range`, so only the latin subset is preloaded here; the
 // latin-ext subset is served by the plain "Sora" @font-face in the package's
@@ -68,7 +48,7 @@ export default function Layout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${sora.variable} ${monaSansMono.variable}`}
+      className={`${sora.variable} ${monaSansMono.variable}`}
       suppressHydrationWarning
     >
       <head>

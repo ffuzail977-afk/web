@@ -3,6 +3,7 @@ import { createProxy, bunFetch } from "@prisma/proxy";
 import { agentFrontMiddleware } from "./agent-front.ts";
 import { gatewaySites } from "./config.ts";
 import { proxyRequestHeaders } from "../request-origin.ts";
+import { withGatewayTiming } from "./timing.ts";
 import { withOriginCache } from "./cache.ts";
 import { readFileSync } from "node:fs";
 import type { PublicFile } from "./file-validators.ts";
@@ -25,8 +26,9 @@ const proxy = createProxy(gatewaySites(), {
 
 createHttpServer(
   withOriginCache(
-    (request) =>
+    withGatewayTiming((request) =>
       new URL(request.url).pathname === "/_composer/health" ? new Response("ok") : proxy(request),
+    ),
     new Map(
       Object.entries(
         JSON.parse(

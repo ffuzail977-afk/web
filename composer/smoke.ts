@@ -59,7 +59,6 @@ async function get(url: URL, init?: RequestInit, startup = false): Promise<Respo
 
 try {
   let documentVary: string | null = null;
-  let docsImage: URL | undefined;
   for (const path of ["/", "/docs/composer", "/blog", "/handbook", "/eclipse"]) {
     const response: Response = await get(
       new URL(path, origin),
@@ -75,11 +74,32 @@ try {
     const html = await response.text();
     if (path === "/docs/composer") {
       documentVary = response.headers.get("vary");
-      const image = html.match(/src="([^"]*\/docs\/_next\/image\?[^"]+)"/);
-      assert.ok(image, "docs: expected the rendered background image");
-      docsImage = new URL(image[1].replaceAll("&amp;", "&"), origin);
-      assert.equal(docsImage.searchParams.get("url"), "/docs/img/brand/texture.jpg");
-      docsImage.searchParams.set("w", "640");
+    }
+    if (path === "/" || path === "/docs/composer") {
+      assert.ok(html.includes("brand-grain"), `${path}: missing brand grain`);
+      const urls = new Set(
+        [...html.matchAll(/(?:src|srcset)="([^" ]*texture\.[^" ]+)"/gi)].map(
+          (match) => new URL(match[1].replaceAll("&amp;", "&"), origin).href,
+        ),
+      );
+      for (const format of ["avif", "jpg"]) {
+        const src: string | undefined = [...urls].find((value) =>
+          new URL(value, origin).pathname.endsWith(`.${format}`),
+        );
+        assert.ok(src, `${path}: missing baked ${format} grain`);
+        const image = await get(new URL(src, origin));
+        assert.equal(image.status, 200, `Missing baked asset: ${src}`);
+        assert.equal(
+          image.headers.get("content-type"),
+          format === "avif" ? "image/avif" : "image/jpeg",
+        );
+        assert.match(image.headers.get("cache-control") ?? "", /immutable/);
+        assert.ok(
+          (await image.arrayBuffer()).byteLength < (format === "avif" ? 60_000 : 150_000),
+          `${path}: grain budget exceeded`,
+        );
+      }
+      console.log(`PASS ${path}: immutable baked grain, AVIF and JPEG fallback`);
     }
     assert.match(html, /<html/);
     if (["/", "/blog", "/docs/composer"].includes(path)) {
@@ -108,7 +128,11 @@ try {
   // Compute's application directory is read-only: optimized images must use
   // the bounded memory handler, and a CDN must honor their Accept variants.
   const optimizedImage = new URL("/_next/image?url=%2Fbrand%2Ftexture.jpg&w=640&q=75", origin);
-  for (const image of [optimizedImage, docsImage!])
+  const docsImage = new URL(
+    "/docs/_next/image?url=%2Fdocs%2Fimg%2Fbrand%2Ftexture.jpg&w=640&q=75",
+    origin,
+  );
+  for (const image of [optimizedImage, docsImage])
     for (const format of ["webp", "jpeg"]) {
       let hit = false;
       let previous: string | undefined;
