@@ -30,3 +30,15 @@ findings.
 After regeneration, run the Composer build/smoke, app tests/type checks and
 browser checks for non-Latin/italic text, image fallbacks, viewport-triggered
 video, reduced motion and initial resource budgets.
+
+Docs preloads the Latin Inter face with `new URL(..., import.meta.url)`, which
+Next emits to the exact same hashed URL as the CSS face. The smoke check verifies
+that identity to prevent duplicate font downloads. Keep the critical code-font
+preload on docs. Font-size savings must be checked with applied desktop throttling
+and layout-shift measurements: matching loaded-font widths alone does not test
+fallback text wrapping during a font swap.
+
+The code-font alias `MonaSansMonoVF.woff2` retains the original binary. The bracketed
+filename made Next emit an encoded preload URL and an unencoded CSS URL, causing
+two downloads. Keep the original export for compatibility and verify both critical
+preload URLs exactly match CSS, not merely decode to the same file.

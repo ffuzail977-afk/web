@@ -101,6 +101,35 @@ try {
       }
       console.log(`PASS ${path}: immutable baked grain, AVIF and JPEG fallback`);
     }
+    if (path === "/docs/composer") {
+      // Next can emit resource hints as HTTP Link headers rather than tags.
+      const hints: string[] = [
+        ...[...html.matchAll(/<link\b[^>]+>/g)]
+          .map((match) => match[0])
+          .filter((tag) => tag.includes('rel="preload"') && tag.includes('as="font"'))
+          .map((tag) => tag.match(/href="([^"]+)"/)![1]),
+        ...[...(response.headers.get("link") ?? "").matchAll(/<([^>]+)>([^,]*)/g)]
+          .filter((entry) => /rel="?preload"?/.test(entry[2]) && /as="?font"?/.test(entry[2]))
+          .map((entry) => entry[1]),
+      ];
+      const cssUrls = new Set<string>();
+      for (const match of html.matchAll(/<link[^>]*href="([^"]+\.css(?:\?[^"]*)?)"[^>]*>/g)) {
+        const css = await get(new URL(match[1].replaceAll("&amp;", "&"), origin));
+        const text = await css.text();
+        for (const asset of text.matchAll(/url\(["']?([^\s)"']+\.woff2)["']?\)/g))
+          cssUrls.add(new URL(asset[1], css.url).href);
+      }
+      for (const name of ["InterVariable-latin.", "MonaSansMonoVF"]) {
+        const fontPath: string | undefined = hints.find((url) => url.includes(name));
+        assert.ok(fontPath, `docs: missing critical font hint: ${name}`);
+        const fontUrl = new URL(fontPath, origin);
+        const font = await get(fontUrl);
+        assert.equal(font.status, 200);
+        assert.ok((await font.arrayBuffer()).byteLength < 180_000);
+        assert.ok(cssUrls.has(fontUrl.href), `docs: preload/CSS URL mismatch: ${fontUrl.href}`);
+      }
+      console.log("PASS docs: matching body/code font preloads and subset budget");
+    }
     assert.match(html, /<html/);
     if (["/", "/blog", "/docs/composer"].includes(path)) {
       assert.equal(

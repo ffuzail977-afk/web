@@ -1,3 +1,4 @@
+import { preload } from "react-dom";
 import "@prisma-docs/ui/search.css";
 import { Provider } from "@/components/provider";
 import { buttonVariants } from "@/components/ui/button";
@@ -32,10 +33,9 @@ const sora = localFont({
 
 // Code face — unchanged by the rebrand.
 const monaSansMono = localFont({
-  src: "../../../../packages/eclipse/src/static/fonts/MonaSansMonoVF[wght].woff2",
+  src: "../../../../packages/eclipse/src/static/fonts/MonaSansMonoVF.woff2",
   variable: "--font-mona-mono",
   display: "swap",
-  preload: false,
   weight: "200 900",
 });
 
@@ -50,6 +50,15 @@ export const metadata: Metadata = {
 };
 
 export default function Layout({ children }: { children: ReactNode }) {
+  // Preload the same URL as the Unicode-ranged CSS face, without a second
+  // Next font family or duplicate binary. Body text must not swap line wraps.
+  preload(
+    new URL(
+      "../../../../packages/eclipse/src/static/fonts/subsets/InterVariable-latin.woff2",
+      import.meta.url,
+    ).href,
+    { as: "font", type: "font/woff2", crossOrigin: "anonymous", fetchPriority: "high" },
+  );
   return (
     <html
       lang="en"

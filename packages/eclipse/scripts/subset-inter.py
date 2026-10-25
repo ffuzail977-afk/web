@@ -87,3 +87,7 @@ for name, style in [("InterVariable", "normal"), ("InterVariable-Italic", "itali
     assert union == coverage, "Subsets must preserve every original character"
 (root / "src/styles/inter-subsets.css").write_text("\n\n".join(css) + "\n")
 (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+
+# Next's bracketed filename produced distinct encoded preload and CSS URLs.
+# Preserve the original export and make the URL-safe alias byte-identical.
+(fonts / "MonaSansMonoVF.woff2").write_bytes((fonts / "MonaSansMonoVF[wght].woff2").read_bytes())

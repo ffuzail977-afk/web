@@ -41,3 +41,11 @@ test("vendored font subsets match the coverage-validated generation and original
     assert.ok(bytes.length < 180_000, entry.file);
   }
 });
+
+test("the URL-safe code font alias retains the original font binary", () => {
+  const fonts = new URL("packages/eclipse/src/static/fonts/", root);
+  assert.equal(
+    hash(readFileSync(new URL("MonaSansMonoVF.woff2", fonts))),
+    hash(readFileSync(new URL("MonaSansMonoVF[wght].woff2", fonts))),
+  );
+});
