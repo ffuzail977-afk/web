@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 type TextureProps = {
   className?: string;
   opacity?: number;
+  eager?: boolean;
   blend?: "hard-light" | "multiply";
 };
 
@@ -11,7 +12,12 @@ type TextureProps = {
 // Standard since the bold pass: 0.06 opacity with multiply blending on
 // color-washed section panels (hard-light is nearly invisible on light
 // surfaces — only reach for it on dark imagery).
-export function Texture({ className, opacity = 0.06, blend = "multiply" }: TextureProps) {
+export function Texture({
+  className,
+  opacity = 0.06,
+  blend = "multiply",
+  eager = false,
+}: TextureProps) {
   return (
     <div
       aria-hidden
@@ -24,7 +30,7 @@ export function Texture({ className, opacity = 0.06, blend = "multiply" }: Textu
         mixBlendMode: blend,
       }}
     >
-      <BrandGrain />
+      <BrandGrain eager={eager} />
     </div>
   );
 }

@@ -11,7 +11,7 @@ export function PaperGround() {
         mixBlendMode: "multiply",
       }}
     >
-      <BrandGrain />
+      <BrandGrain eager />
     </div>
   );
 }

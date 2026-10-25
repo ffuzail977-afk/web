@@ -1637,3 +1637,12 @@ the new seven-region baseline, reused-connection origin/proxy measurements,
 asset/font/chat/video changes under verification, and concrete requirements for
 a deployment-integrated Compute CDN. Final measurements will be recorded after
 the exact preview deployment; no global parity claim is made.
+
+The first optimized-preview pilot (`7902b3bdd`, not a final median) reduced
+homepage transfer to 2,172,310 bytes versus production's 6,563,483; applied mobile
+LCP was 7.564 versus 14.970 seconds. The 34,457-byte AVIF still took 5.755 seconds
+to load: an edge MISS plus contention with hydration scripts, and initial Medium
+priority before layout promoted it to High. The critical picture now supplies
+parser-time high priority and an AVIF-only preload (unsupported browsers skip
+that preload and use the native JPEG fallback); below-fold instances are lazy.
+Final measurements below will supersede this single cold pilot.
