@@ -1,3 +1,4 @@
+import React from "react";
 import avif from "../assets/brand/texture.avif";
 import jpeg from "../assets/brand/texture.jpg";
 
