@@ -1,12 +1,15 @@
 # Composer and Compute findings from porting Prisma Web
 
-Latest verified status, 24 October: the single origin-controlled Cloudflare
-rule works on `prisma.sorenbs.com`. Code source `6faead1cb` passed all checks,
-five Vercel previews, Compute deployment and live cache/smoke validation.
-Composer/provider are now `0.30.0-dev.9`. Global performance parity is not yet
-achieved. The final sections record the current measurements and supersede
-earlier pending-verification notes; the original porting observations remain
-below as history. No production cutover was performed.
+Latest verified status, 25 October: code source `40a69269a` passed all checks,
+five Vercel previews, Compute deployment and live cache/smoke validation with
+the single origin-controlled Cloudflare rule on `prisma.sorenbs.com`.
+Application optimizations substantially improve mobile homepage/blog LCP and
+reduce initial bytes; docs mobile LCP is roughly level with Vercel. Cold fills,
+uncached navigation and some network paths still prevent an all-user parity
+claim. Composer/provider are `0.30.0-dev.9`. The final section records the
+current evidence and product requirements, superseding earlier provisional
+results; the original observations remain below as history. No production
+cutover or extra Cloudflare rule was performed.
 
 Recorded on 12 October 2026. Tested with Composer and the Prisma Cloud target
 0.29.1, Prisma CLI 8.0.0-rc.22, Next.js 16.3.4, pnpm 12.3.4, and Bun 1.4.3.
@@ -1646,3 +1649,264 @@ priority before layout promoted it to High. The critical picture now supplies
 parser-time high priority and an AVIF-only preload (unsupported browsers skip
 that preload and use the native JPEG fallback); below-fold instances are lazy.
 Final measurements below will supersede this single cold pilot.
+
+## Final optimization verification and CDN requirements — 25 October
+
+Runtime source: `40a69269a70e74ff3d8223f3302cf285530d4e88`. Exact preview
+workflow: [40177501927](https://github.com/prisma/web/actions/runs/40177501927).
+All GitHub checks, all five Vercel previews, Compute deployment and its full
+deployed smoke passed. The six active Compute service versions match before
+and after the final browser/cache checks.
+The [investigation](composer/performance/2026-10-25.md) contains the implementation,
+baseline and CDN design requirements. No extra Cloudflare rule was added.
+
+The app changes bake the original grain and selected artwork, use Unicode-ranged
+Inter without dropping character coverage/axes/features, initialize the protected
+Ask AI SDK/CAPTCHA on first open, and defer the closing video until near the
+viewport (never download it for reduced motion). The critical picture now has
+an AVIF-only early preload and high fetch priority; other instances are lazy.
+Native JPEG fallback remains. Both Vercel and Compute use Next's content-hashed
+static URLs; originals and legacy image optimization remain available.
+
+Browser checks verified both format URLs, the actual AVIF selection, no initial
+CAPTCHA requests, working desktop/mobile panels, keyboard close/reopen and an
+unsent desktop draft. No real AI question or external form was submitted.
+Thirty language/weight/style comparisons matched original Inter text widths
+exactly, including Vietnamese, Greek, Cyrillic, combining marks and italics.
+Desktop/mobile screenshots preserve the original layout and artwork. The raw
+Node SSR/content tests now load static imports through a test-only loader; the
+component also supports their classic JSX transform. Local site tests (272),
+UI types and proxy/Composer checks (40 + 41) pass after these changes. The last
+full local five-site build/smoke passed ranges, validators, redirects, Markdown,
+legacy/current articles and both baked formats; docs peaked at 550.0 MB sampled
+RSS, and blog remained largest at 850.4 MB expanded / 686.3 MB compressed.
+
+### Delivery-path isolation
+
+This experiment used the preceding optimized source `7902b3bdd`; its health
+and proxy handler code is identical to the final source. Six sequential public
+GETs per target, one curl process per target, HTTP/2 from
+Bangkok. Exclude the first connection setup and take the median of five reused
+connections:
+
+| Path | TTFB median | Gateway handler |
+| --- | ---: | ---: |
+| Cloudflare managed `/cdn-cgi/trace` | 15 ms | Not invoked |
+| Same custom-domain Compute health, direct origin | 266 ms | 0.0–0.1 ms |
+| Generated Compute gateway health, direct | 290 ms | 0.0–0.1 ms |
+| Custom-domain health through Cloudflare (BYPASS) | 1,030 ms | 0.0–0.1 ms |
+
+The Cloudflare samples were 1,009–1,078 ms. Each of the three switchboard origin
+IPs returned warm health in 267–293 ms. Direct HTTP/1.1 also reused connections
+successfully (267 ms). This excludes a single unhealthy origin node and a basic
+app keep-alive failure. It does **not** identify Cloudflare's chosen origin IP,
+connection reuse, transit route, or Compute's pre-handler scheduling/ingress time.
+The extra delay is outside Next rendering and the measured gateway handler.
+Cloudflare documents [pooled HTTP/2 to origin, enabled by default](https://developers.cloudflare.com/speed/optimization/protocol/http2-to-origin/);
+we have not inspected the account setting or provider-side connection telemetry.
+Do not prescribe an unverified toggle or blame app CPU from this result.
+
+The earlier same-connection docs comparison was 311–317 ms through the gateway
+versus 308–313 ms directly to docs. A warm proxy hop is not the primary bottleneck.
+`Server-Timing: gateway` covers work until upstream headers and preserves streams;
+a cached HIT reports the timing from its cache fill, not work on that HIT.
+
+Four reused Singapore probes were also checked. First image requests through
+Cloudflare took about 1.68 seconds (two HIT, two REVALIDATED); the second requests
+were HIT in 48–171 ms. Vercel's second requests were 30–57 ms. Unlike the previous
+day's distant-processing trace, a fresh two-round Cloudflare-owned trace check
+was fast on all four ASNs (28–64 ms, SIN). The anomaly is intermittent and did
+not reproduce on the managed endpoint in this run. Country averages or a single
+colo label cannot explain it; do not infer persistent packet loss or a definite
+peering cause. Raw request IDs, headers, timings and per-IP checks are retained
+under `output/playwright/performance-2026-10-25/`.
+
+### Repeated browser results
+
+Lighthouse 13.5.0 / Chrome 155, interleaved hosts, fresh browser cache per run,
+Bangkok. Mobile uses actual DevTools throttling: 150 ms latency, 1,600/750 Kbps,
+CPU ×4. Desktop uses 40 ms, 10,240/10,240 Kbps, CPU ×1. These are applied
+measurements, not the earlier Lantern desktop simulation. No local builds or
+tests ran during the selected batches. Edge resources were progressively warmed;
+the inventory warmup does not guarantee a HIT for every browser representation
+or responsive asset. Actual cache statuses are retained with each trace.
+
+Mobile medians, three runs per page/host:
+
+| Page | Compute + Cloudflare LCP | Live Vercel LCP | Compute bytes | Vercel bytes | Compute / Vercel TBT |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Homepage | 3.552 s | 14.911 s | 2.17 MB | 6.56 MB | 562 / 720 ms |
+| Docs Composer | 3.396 s | 3.425 s | 2.06 MB | 4.27 MB | 686 / 1,082 ms |
+| Blog index | 2.437 s | 3.551 s | 1.88 MB | 3.35 MB | 449 / 573 ms |
+| Blog article | 2.327 s | 3.436 s | 1.88 MB | 2.62 MB | 465 / 596 ms |
+
+The same-profile Compute baseline was 10.187 / 3.390 / 2.492 / 2.483 s LCP
+and 6.55 / 3.52 / 2.49 / 2.48 MB for these four pages. Initial bytes fell about
+67% / 41% / 24% / 24%. Docs LCP is essentially unchanged, while its TBT fell
+about a third. Article TBT was 424 ms before versus 465 ms after; do not claim
+every metric improved. Homepage FCP is 3.552 s versus Vercel's 3.468 s: the large
+homepage LCP improvement removes late decorative-media work, not four times
+faster first text or every interaction.
+
+Desktop results (docs: median of three; other pages: one diagnostic each):
+
+| Page | Compute + Cloudflare LCP | Live Vercel LCP | Compute / Vercel document cache |
+| --- | ---: | ---: | --- |
+| Homepage | 1.152 s | 5.876 s | EXPIRED / HIT |
+| Docs Composer | 0.499 s | 0.664 s | Two UPDATING, one HIT / three HIT |
+| Blog index | 1.006 s | 0.680 s | EXPIRED / HIT |
+| Blog article | 1.152 s | 0.703 s | EXPIRED / HIT |
+
+The three EXPIRED document responses took 752–889 ms to headers, versus
+132–137 ms on Vercel HITs. The cached docs documents took 66–70 ms, versus
+125–137 ms on Vercel. This exposes the freshness/delivery tradeoff rather than
+proving that either platform always wins. The separate warm-document diagnostic
+below uses the exact Chrome Accept/Accept-Encoding/User-Agent values: warming
+with curl's simple `Accept: text/html` warms a different raw-Vary representation.
+
+Exact-browser warm-document diagnostic, one additional applied-desktop run per
+page/host, separate from the primary medians and expiry samples:
+
+| Page | Compute + Cloudflare LCP | Live Vercel LCP | Document cache |
+| --- | ---: | ---: | --- |
+| Homepage | 0.432 s | 5.883 s | HIT / HIT |
+| Blog index | 0.346 s | 0.660 s | HIT / HIT |
+| Blog article | 0.343 s | 0.656 s | HIT / HIT |
+
+Compute document header time was 61–62 ms versus Vercel 125–139 ms. All six
+audits completed without runtime errors or first-party asset failures. These
+single samples show the achievable warm path; they do not replace the slower
+expired samples with a claim of steady global superiority. The homepage's
+Vercel first text was 0.601 s despite its much later decorative-image LCP.
+
+The final docs font fix is included in all docs results above. Removing preloads
+in the preceding optimized build clustered two desktop font swaps, producing
+CLS 0.167. The fix preloads the Unicode-ranged Latin face and code face without
+creating a second full Inter family. Next's original bracketed code-font filename
+also produced an encoded preload URI but an unencoded CSS URI, causing two Chrome
+requests. A byte-identical clean filename makes the preload and CSS URI agree;
+the generator and hash budget enforce equality with the original font. The final
+docs desktop CLS is 0.090 in all three runs, versus live Vercel median 0.099;
+mobile is 0.00158 on both. This is not zero CLS. Next can emit these hints in the
+HTTP Link header, so the smoke checks both header and DOM hints and matches them
+to the CSS URL, rather than assuming a missing DOM link means no preload.
+
+The primary selected set has 36 audits: 24 mobile, six docs desktop and six other
+desktop. Home/blog/article mobile ran on `d8994c4fe`; final docs and desktop ran
+on `40a69269a`. Those three apps' JS and stylesheet URL inventories are identical
+between batches on both hosts; the final code change affected docs fonts only.
+The earlier desktop batch that overlapped font diagnostic builds is excluded,
+and the failed docs CLS result is retained as a corrected regression, not a final
+result. There are no Lighthouse runtime errors or first-party CSS/JS/image/font
+HTTP failures in the selected set. Both hosts' docs monitoring endpoint returns
+403 during some audits; these telemetry failures were not hidden or counted as
+successful monitoring. The warm custom-domain diagnostics also recorded the
+existing Font Awesome kit returning 403 and Promptwatch ingest returning 404,
+unlike the production samples. Those external services were not disabled by this
+change; their domain/configuration differs and these are not successful
+integration checks. Content, build and enabled integrations differ between the
+live deployments, so this is a real-site comparison, not a hosting-only A/B.
+The before/after Compute measurements retain the same custom-domain integrations.
+
+Two additional diagnostics show why warm medians are insufficient:
+
+- With surrounding HTML cached and a fresh browser context, a new cache key for
+  the 35 KB critical AVIF gave LCP **5.484 s**; repeating that key as a HIT gave
+  **1.668 s**. The image response started at 1.132 s and finished at 5.102 s
+  cold, versus 0.266 / 1.036 s warm. Only that read-only image request was given
+  a probe query; no cache purge or rule changed. This is one controlled mobile
+  pair, separate from the Lighthouse medians, using CDP 150 ms, 1,600/750 Kbps,
+  CPU ×4. A small file still loses time on cache fill and competes with scripts.
+- Real desktop Composer → Compute docs link navigation, two paired fresh-context
+  runs with normal prefetch, took **1,283 / 434 ms** click-to-heading on Compute
+  versus **97 / 116 ms** on Vercel. Compute RSC was BYPASS/no-store, Vercel HIT.
+  Compute request header times were 306–1,193 ms, with gateway upstream-header
+  work only 7.7–24.7 ms; Vercel was 69–109 ms. This supports a delivery gap outside
+  the measured handler, not 1.2 seconds of demonstrated Next CPU. Streaming-body
+  and pre-handler time are not separated by that metric. The unsent Ask AI draft
+  survived close/reopen and navigation away/back; no question was submitted.
+
+Raw reports, traces, screenshots, service identities, fingerprints and diagnostic
+JSON are retained locally under `output/playwright/performance-2026-10-25/`.
+Primary browser phases: `final-d899` (unchanged-app mobile only),
+`final-font-40a` (final docs), `final-desktop-40a` (desktop expiry samples),
+and `warm-desktop-40a` (six additional exact-browser warm diagnostics).
+The machine-readable medians are in `final-browser-summary.json`; the cold pair
+and navigation evidence are `cold-critical-results.json` and
+`navigation-results.json`. The earlier baseline remains under
+`output/playwright/global-performance-2026-10-24/`.
+
+### Repeated regional and cache checks
+
+All 28 final regional HEADs returned 200, reusing the same seven probes as the
+before series. The first Cloudflare requests were EXPIRED (885–1,370 ms). The
+second round was all HIT, with Cloudflare faster in six of seven pairs:
+
+| Probe | Cloudflare HIT, ms | Vercel HIT, ms |
+| --- | ---: | ---: |
+| Buffalo (HostPapa) | 108 | 189 |
+| Los Angeles (HostPapa) | 73 | 131 |
+| Falkenstein (Hetzner Online) | 90 | 104 |
+| Singapore (LeaseWeb) | 151 | 69 |
+| Sao Paulo (Oracle) | 44 | 80 |
+| Johannesburg (Xneelo) | 45 | 157 |
+| Sydney (Oracle) | 99 | 293 |
+
+These are connection-inclusive TTFB values (total minus the 0–1 ms HEAD
+download), not browser paint. The Singapore Cloudflare HIT used HKG and took
+151 ms versus Vercel’s 69 ms; the earlier fast LeaseWeb sample used a different
+processing path. Do not replace the prior slow-ASN evidence with a country
+median. The cold/expired and warm cases remain materially different.
+
+Public Globalping measurement IDs: initial Cloudflare `2DMfalGzREA0yB6D000021Ne7`;
+repeated Cloudflare `2m1TNcSvQ6Jjf7HdV00021Ne7`; repeated Vercel `2tMGAcE0QruyV9Kw000021Ne7`.
+
+The final single-rule validation made 45 GETs across 15 cases: all returned 200,
+with zero assertion failures. It recorded 30 HITs, four EXPIRED, two REVALIDATED
+and nine BYPASS responses. Final public HTML, Markdown, harmless-cookie/tracking
+variants and both optimized image formats were HIT. WebP/JPEG and HTML/Markdown
+remain distinct; Authorization, RSC and `_rsc` query probes retained CDN no-store
+and never HIT. The ordinary-cookie case is the existing explicitly public blog
+route, not evidence that arbitrary authenticated pages can be cached. Final BKK
+HIT first-byte times were 53–72 ms. The raw folder is named `final-cache-d899`
+after its originally queued phase; the requests ran after the verified `40a`
+deployment, with matching final service versions. The complete deployed smoke
+also checks redirects, original/baked assets, correct ranges, framing and content
+validators. No additional Cloudflare rule was needed.
+
+### What the product needs
+
+The most important missing capability is **deployment-integrated static and
+framework delivery outside the VM's file budget**. Vercel prerenders the docs;
+this Composer setup omits article static-params to fit the 1 GB filesystem,
+then renders on demand. Extracting public/static files **and prerendered HTML/RSC**
+into a release-scoped object store/CDN would remove that tradeoff. Keep old chunks
+while old HTML can reference them; promote/rollback app, assets and framework
+cache together. A one-minute TTL plus SWR bounds staleness; it does not provide
+atomic deployment invalidation or version routing. Next's deploymentId detects
+skew but does not itself retain/route old releases.
+
+Use a Next-aware edge key for HTML, Markdown and eligible RSC/prefetch, including
+release/zone and actual representation inputs. Raw User-Agent/Accept Vary and
+complete queries are safe here but fragment cache entries. Normalize equivalent
+representations and audit tracking parameters at a trusted edge; retain real
+filters, auth, private responses, Server Actions and Set-Cookie behavior. Current
+RSC navigation stays uncached until that contract exists.
+
+Provide shared fills/shielding, coalescing and persistent image variants outside
+the runtime filesystem. [Tiered caching](https://developers.cloudflare.com/cache/how-to/tiered-cache/)
+can reduce repeated origin fills; it cannot eliminate first-ever SSR or fix a slow
+HIT path. Preserve compression, content hashes, stream lengths, HEAD/206/304,
+ranges and cancellation. Expose edge/shield/connect/TLS/ingress/scheduler/app
+latency and cache key/reason/age/release so this diagnosis does not stop at the
+boundary of the handler. A route-level critical-asset manifest can support early
+hints/preloading without every app rediscovering its priority waterfall.
+
+Compute + Cloudflare demonstrably supports fast cached delivery. A native CDN
+on the same Cloudflare routing is not, by itself, a cure for the observed tails.
+Universal parity is not established: cold and fragmented entries and uncached
+navigation still pay EWR distance, independent-cache rollout semantics differ,
+and some network paths fluctuate. A practical parity gate needs repeated
+cold/warm/expired/campaign/navigation tests across ASNs and field p75 LCP/INP/CLS,
+in addition to these lab samples. No private content was made cacheable, no
+analytics/protection was disabled, and no production cutover was performed.
